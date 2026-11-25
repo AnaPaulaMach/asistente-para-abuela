@@ -9,28 +9,15 @@ Se llama Beto. Es un parlantito con un anillo de luces, un botón y una ruedita 
 
 ## Un día con Beto
 
-**A la mañana** el anillo respira despacito en rosa: está prendido y esperando.
-A las 9 se pone **lila** y dice: *"Acordate de tomar la pastilla de la presión."* Ella toca el botón para avisar que ya la tomó, y Beto le contesta *"¡Muy bien! Gracias por avisarme."*. Si no lo toca, lo repite un par de veces y, si sigue sin respuesta, me llega un mensaje.
+**A la mañana** el anillo respira en rosa. A las 9 se pone lila: *"Acordate de tomar la pastilla."* Ella toca el botón para avisar que la tomó; si no, me llega un mensaje.
 
-**Al mediodía** toca el botón y se pone **azul**: la está escuchando.
-— *"Beto, ¿cómo está el día?"*
-**Verde** mientras contesta: *"Hay 26 grados y está algo nublado. Puede que llueva un poco a la tarde."* (Ella les tiene miedo a las tormentas, así que Beto las nombra al pasar y con calma.)
+**Al mediodía** toca el botón (azul: la escucha) y pregunta *"¿Cómo está el día?"*. Beto contesta en verde, nombrando la lluvia con calma porque le tienen miedo a las tormentas.
 
-**A la siesta** pregunta *"¿Qué pasó hoy en el pueblo?"* y Beto le cuenta dos o tres noticias de los diarios de su ciudad: el festival, el partido, quién viene a tocar. Las policiales y las tragedias se quedan afuera, salvo que ella pregunte justo por eso.
+**A la siesta** pide las noticias de su ciudad (sin policiales) o *"poneme la radio"*. Un toque la apaga.
 
-**Si quiere música** le pide *"poneme la radio"* o *"la de folklore"*, y Beto pone una de las emisoras de su ciudad. Un toque del botón la apaga y la deja hablar; si suena un recordatorio, la radio se pausa y vuelve sola.
+**Por la tarde** charlan. Beto conoce a la familia y sus cumpleaños, y le da tiempo para contestar aunque haga pausas.
 
-**Por la tarde** tiene ganas de charlar. Beto sabe quién es la familia, cuándo cumplen años y qué le gusta. Si le hace una pregunta, se queda escuchando solo unos segundos, sin que tenga que tocar nada, porque ella tarda un poquito en arrancar a hablar. Y no la apura: espera a que termine, aunque haga pausas.
-
-**Si habla bajito o le cuesta oír**, se gira la ruedita (o se le pide *"hablá más fuerte"*) y el anillo muestra una barrita blanca con el volumen.
-
-**Si pasa algo**, mantiene apretado el botón dos segundos:
-1. *"¿Es una emergencia? Si apretaste sin querer, tocá el botón. Si no, en diez segundos le aviso a tu familia."*
-2. El anillo rojo se achica de a un segundo. Un toque lo cancela.
-3. Si nadie lo cancela (por ejemplo, si se cayó y no puede contestar), **me llega un aviso por Telegram**.
-4. Le ofrece grabar un mensaje: si toca el botón, la escucha 10 segundos y me manda el audio.
-
-Las frases de emergencia están grabadas en el aparato: funcionan aunque Gemini no responda. Si no hay internet, lo dice, se pone naranja y sigue reintentando.
+**Si pasa algo**, mantiene apretado el botón: Beto pregunta si es una emergencia y, si nadie cancela en diez segundos, me llega un aviso por Telegram. Funciona aunque no responda Gemini.
 
 ---
 
