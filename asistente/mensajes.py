@@ -176,7 +176,10 @@ class Mensajes:
 
     async def _entregar(self, m):
         if "texto" in m:
-            wav = await self._voz(f"Te llegó un mensaje de {m['de']}. Dice: {m['texto']}")
+            # En dos partes: si va todo junto ("... Dice: Hola"), Gemini lee
+            # solo el mensaje y se saltea quién lo manda.
+            await self._tocar(await self._voz(f"Te llegó un mensaje de {m['de']}.", guardar=True))
+            wav = await self._voz(m["texto"])
             try:
                 await self._tocar(wav)
             finally:
