@@ -9,7 +9,7 @@ el estado 30 veces por segundo.
     sudo ~/leds-venv/bin/python ~/asistente/leds.py
 
 Estados: esperando, escuchando, pensando, hablando, volumen N, error,
-emergencia, cuenta N, recordatorio, radio, apagado.
+emergencia, cuenta N, recordatorio, radio, mensaje, apagado.
 """
 import math
 import signal
@@ -31,6 +31,7 @@ NARANJA = (255, 90, 0)
 ROJO = (255, 0, 0)
 BLANCO = (255, 255, 255)
 LILA = (150, 60, 255)
+CELESTE = (0, 170, 255)
 
 
 def escalar(color, factor):
@@ -62,6 +63,8 @@ def dibujar(estado, extra, t):
         punto = (t / 4 * CANTIDAD) % CANTIDAD
         return [escalar(ROSA, max(0.12, 1 - min(abs(i - punto), CANTIDAD - abs(i - punto)) / 3))
                 for i in range(CANTIDAD)]
+    if estado == "mensaje":
+        return [escalar(CELESTE, 0.3 + 0.7 * ola(t, 1.2))] * CANTIDAD
     if estado == "recordatorio":
         return [escalar(LILA, 0.3 + 0.7 * ola(t, 1.5))] * CANTIDAD
     if estado == "error":

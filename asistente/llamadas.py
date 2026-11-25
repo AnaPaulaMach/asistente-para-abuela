@@ -60,6 +60,7 @@ def pedir(persona="", motivo=""):
     if ella.get("telefono"):
         # Telegram convierte el número en un enlace: tocándolo se llama o se manda un SMS.
         texto += f"\nSu teléfono: {ella['telefono']}"
+    texto += "\nO respondé acá (texto o audio) y se lo digo."
 
     telegram_bot.mandar_texto(destino, texto)
     _ultimo[clave] = time.monotonic()

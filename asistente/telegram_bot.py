@@ -1,4 +1,4 @@
-"""Telegram para el asistente: mandar texto y notas de voz con el bot.
+"""Telegram para el asistente: mandar y recibir texto y notas de voz con el bot.
 
 Solo librería estándar. Las funciones son "bloqueantes" (esperan la respuesta
 de Telegram); desde asyncio se llaman con asyncio.to_thread.
@@ -29,7 +29,7 @@ def _token():
 
 
 def chat_familia():
-    """Por ahora, el chat de la nieta; en la etapa g, la lista de contactos."""
+    """El chat que recibe los avisos (emergencias, recordatorios, desconocidos)."""
     return leer_env(CONFIG / "ajustes.env")["TELEGRAM_CHAT_ID"]
 
 
@@ -73,3 +73,32 @@ def mandar_voz(chat_id, ogg, texto=None):
         cuerpo += datos + b"\r\n"
     cuerpo += f"--{marca}--\r\n".encode()
     return _pedir("sendVoice", bytes(cuerpo), f"multipart/form-data; boundary={marca}", espera=60)
+
+
+DESDE = CONFIG / "telegram-desde"   # el último mensaje ya procesado, por si se reinicia
+
+
+def recibir(espera=30):
+    """Espera mensajes nuevos ("long polling": Telegram contesta apenas llega
+    algo, o a los `espera` segundos con la lista vacía) y los marca como leídos."""
+    try:
+        desde = int(DESDE.read_text())
+    except (OSError, ValueError):
+        desde = 0
+    cuerpo = urllib.parse.urlencode({"offset": desde, "timeout": espera,
+                                     "allowed_updates": '["message"]'}).encode()
+    novedades = _pedir("getUpdates", cuerpo, "application/x-www-form-urlencoded", espera=espera + 15)
+    if novedades:
+        DESDE.write_text(str(novedades[-1]["update_id"] + 1))
+    return [u["message"] for u in novedades if "message" in u]
+
+
+def descargar(file_id, destino):
+    """Los archivos se piden en dos pasos: getFile da la ruta y después se baja."""
+    cuerpo = urllib.parse.urlencode({"file_id": file_id}).encode()
+    ruta = _pedir("getFile", cuerpo, "application/x-www-form-urlencoded")["file_path"]
+    try:
+        with urllib.request.urlopen(f"https://api.telegram.org/file/bot{_token()}/{ruta}", timeout=60) as r:
+            Path(destino).write_bytes(r.read())
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"No pude bajar el archivo ({getattr(e, 'reason', e)})") from None

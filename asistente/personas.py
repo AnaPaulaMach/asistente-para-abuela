@@ -12,11 +12,50 @@ from pathlib import Path
 ARCHIVO = Path.home() / ".config" / "asistente" / "personas.toml"
 
 
+# Los chats de Telegram que el bot aprende solo (cuando alguien de la familia
+# le escribe por primera vez) van aparte, en un archivo que vive solo en la Pi:
+# así desplegar.sh no los pisa al copiar personas.toml desde la compu.
+CHATS = ARCHIVO.with_name("chats-telegram.env")
+
+
+def _chats_aprendidos():
+    datos = {}
+    if CHATS.exists():
+        for linea in CHATS.read_text().splitlines():
+            if "=" in linea:
+                nombre, chat = linea.split("=", 1)
+                datos[nombre.strip()] = chat.strip()
+    return datos
+
+
 def cargar():
     if not ARCHIVO.exists():
         return {}
     with ARCHIVO.open("rb") as f:
-        return tomllib.load(f)
+        datos = tomllib.load(f)
+    aprendidos = _chats_aprendidos()
+    for p in datos.get("persona", []):
+        if not p.get("telegram") and p.get("nombre") in aprendidos:
+            p["telegram"] = aprendidos[p["nombre"]]
+    return datos
+
+
+def de_telegram(chat_id, usuario=""):
+    """¿Quién es este chat? Por su número de chat, o por su usuario de Telegram
+    anotado en la ficha (y entonces se guarda el chat para la próxima)."""
+    chat_id, usuario = str(chat_id), (usuario or "").lower().lstrip("@")
+    datos = cargar()
+    for p in datos.get("persona", []):
+        if str(p.get("telegram", "")) == chat_id:
+            return p
+    for p in datos.get("persona", []):
+        if usuario and (p.get("telegram_usuario") or "").lower().lstrip("@") == usuario:
+            with CHATS.open("a") as f:
+                f.write(f"{p['nombre']}={chat_id}\n")
+            CHATS.chmod(0o600)
+            p["telegram"] = chat_id
+            return p
+    return None
 
 
 def _cumple(p):

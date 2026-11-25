@@ -41,7 +41,7 @@ flowchart LR
     telegram --> celu
 ```
 
-- **Telegram** me avisa en el celular: emergencias, recordatorios que no confirmó, y más adelante, audios de ida y vuelta con la familia.
+- **Telegram** me avisa en el celular: emergencias, recordatorios que no confirmó, o que quiere que la llame. Y la familia le puede mandar textos o audios al bot: Beto se los dice en voz alta, y ella contesta hablando.
 - **Desde la compu** cambio recordatorios, ajusto cómo habla o actualizo el código, y lo copio a la Pi con un comando.
 - **En el escritorio** tengo un widget que me muestra cómo está Beto sin abrir nada: si la charla y las luces andan, el volumen, los recordatorios, cuánto gastó hoy y los próximos cumpleaños. Desde ahí también cambio el volumen, agrego o borro recordatorios y apago la radio.
 

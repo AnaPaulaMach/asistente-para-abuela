@@ -26,7 +26,8 @@ from gpiozero import Button, RotaryEncoder
 
 import alerta
 import clima
-import llamadas as llamar  # "llamadas" ya es la lista de pedidos de Gemini
+import llamadas as llamar
+import mensajes as mensajeria  # "llamadas" ya es la lista de pedidos de Gemini
 import noticias
 import personas
 import radio as radios
@@ -114,6 +115,19 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
         },
     },
 ), types.FunctionDeclaration(
+    name="mandar_mensaje",
+    description=("Le manda por Telegram un mensaje de ella a alguien de la familia. Usala cuando "
+                 "diga 'decile a ... que ...' o quiera contestar un mensaje que le llegó."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "persona": {"type": "string", "description": "a quién, como ella lo dice"},
+            "texto": {"type": "string",
+                      "description": "lo que quiere decirle, en primera persona y con sus palabras"},
+        },
+        "required": ["persona", "texto"],
+    },
+), types.FunctionDeclaration(
     name="poner_radio",
     description=("Pone una radio por el parlante. Empieza cuando termines de hablar; ella la apaga "
                  "tocando el botón. Usala cuando pida la radio, música o una emisora."),
@@ -143,6 +157,11 @@ def instrucciones():
     if PERFIL.exists() or gente:
         sobre_ella = PERFIL.read_text().strip() if PERFIL.exists() else ""
         partes.append("Sobre ella y su gente:\n" + "\n".join(t for t in (gente, sobre_ella) if t))
+    llegados = mensajeria.recientes()
+    if llegados:
+        partes.append("Mensajes que le llegaron por Telegram en las últimas 24 horas (ya se los dijiste; "
+                      "repetíselos si te pregunta):\n" + "\n".join(
+                          f"- {m['hora']}, de {m['de']}: {m['texto']}" for m in llegados))
     lista = radios.emisoras()
     if lista:
         partes.append("Radios que podés poner con poner_radio:\n" + "\n".join(
@@ -399,6 +418,12 @@ class Charla:
                         llamar.pedir, args.get("persona") or "", args.get("motivo") or "")
                 except Exception as e:  # sin internet: que no prometa que avisó
                     resultado = {"error": f"no pude avisar ({e})"}
+            elif llamada.name == "mandar_mensaje":
+                try:
+                    resultado = await asyncio.to_thread(
+                        mensajeria.mandar, args.get("persona") or "", args.get("texto") or "")
+                except Exception as e:
+                    resultado = {"error": f"no pude mandarlo ({e})"}
             elif llamada.name == "poner_radio":
                 elegida = radios.buscar(args.get("emisora") or "")
                 if elegida:
@@ -535,20 +560,30 @@ async def main():
 
     # Los recordatorios corren en paralelo ("tarea" de asyncio) y esperan
     # cuando hay una charla o una emergencia en curso.
-    recordatorios = Recordatorios(cliente, ocupado=lambda: atender.charla is not None or alerta.activa)
+    # Los mensajes de la familia esperan si hay una charla, una emergencia o un
+    # recordatorio; los recordatorios esperan si se está diciendo un mensaje.
+    mensajes = None
+    recordatorios = Recordatorios(cliente, ocupado=lambda: atender.charla is not None or alerta.activa
+                                  or (mensajes is not None and mensajes.entregando))
     recordatorios.radio = radio  # un recordatorio pausa la radio y la vuelve a poner
     asyncio.create_task(recordatorios.bucle())
+    mensajes = mensajeria.Mensajes(
+        cliente, radio=radio,
+        ocupado=lambda: atender.charla is not None or alerta.activa or recordatorios.confirmacion is not None)
+    asyncio.create_task(mensajes.escuchar())
 
     try:
-        await atender(cliente, toques, volumen, radio, recordatorios)
+        await atender(cliente, toques, volumen, radio, recordatorios, mensajes)
     finally:
         radio.parar()  # mpv corre aparte: si la charla se cierra, que no quede sonando
 
 
-async def atender(cliente, toques, volumen, radio, recordatorios):
+async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
     """El ciclo de toques: charla, emergencia y confirmación de recordatorios."""
     while True:
         toque = await toques.get()
+        while mensajes.entregando:  # si está diciendo un mensaje, que termine (son segundos)
+            await asyncio.sleep(0.2)
         if radio.sonando():
             radio.parar()  # cualquier toque apaga la radio (y sigue: hablar o emergencia)
         if toque == "larga":
