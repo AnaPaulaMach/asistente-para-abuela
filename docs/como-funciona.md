@@ -39,6 +39,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
 | `recordatorios.py` | Recordatorios diarios o de una sola vez (`27/11 17:00 texto`), con confirmación y aviso si no confirma; ella los agrega y borra hablando |
+| `vigilante.py` | Avisos por Telegram: se prendió (¿corte de luz?), temperatura de 75 °C o más, baja tensión, estuvo sin internet |
 | `memoria.py` | Notas de lo que ella cuenta (herramientas recordar y olvidar), privadas en `memoria.md`; las últimas 40 van en cada charla, se guardan 80 |
 | `mensajes.py` | Mensajes de la familia por Telegram (texto o audio) dichos en voz alta, con confirmación; solo de quienes están en `personas.toml`; ella contesta hablando (herramienta mandar_mensaje) |
 | `llamadas.py` | "Decile a … que me llame": avisa por Telegram (a esa persona si tiene chat, si no a la familia con su teléfono), uno cada 10 minutos como mucho |
@@ -57,4 +58,5 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 - **La emergencia avisa si nadie la cancela:** si se cayó y no puede contestar, el aviso tiene que salir igual.
 - **Las herramientas de Gemini** (*function calling*): Gemini no cambia el volumen ni busca el clima por su cuenta; le pide al programa que lo haga.
 - **Cuánto se paga:** cada respuesta vuelve a procesar toda la charla anterior; por eso la conexión se cierra a los 2 minutos sin uso.
+- **Búsqueda en Google:** Gemini puede buscar para preguntas puntuales (5.000 búsquedas gratis por mes; después USD 14 cada 1.000).
 - **Seguridad:** SSH solo con llave, ningún otro puerto abierto, actualizaciones automáticas, registro que se borra a la semana, acceso remoto por Tailscale.

@@ -74,8 +74,9 @@ def mandar(persona, texto):
 
 
 class Mensajes:
-    def __init__(self, cliente, ocupado, radio):
+    def __init__(self, cliente, ocupado, radio, vigilante=None):
         self.cliente = cliente
+        self.vigilante = vigilante    # se entera de si hay internet (por si hay que avisar)
         self.ocupado = ocupado        # función: ¿hay charla, emergencia o recordatorio en curso?
         self.radio = radio
         self.entregando = False
@@ -91,10 +92,15 @@ class Mensajes:
         asyncio.create_task(self._entregar_en_orden())
         while True:
             try:
-                for m in await asyncio.to_thread(telegram_bot.recibir, 30):
+                nuevos = await asyncio.to_thread(telegram_bot.recibir, 30)
+                if self.vigilante:
+                    await asyncio.to_thread(self.vigilante.conexion, True)
+                for m in nuevos:
                     await self._recibido(m)
             except Exception as e:  # sin internet, etc.: reintenta en un rato
                 print(f"(mensajes: {e})", flush=True)
+                if self.vigilante:
+                    self.vigilante.conexion(False)
                 await asyncio.sleep(20)
 
     async def _recibido(self, m):

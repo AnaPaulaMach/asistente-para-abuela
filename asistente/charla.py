@@ -38,6 +38,7 @@ from luces import luz
 from radio import Radio
 import recordatorios as avisos
 from recordatorios import Recordatorios
+from vigilante import Vigilante
 from volumen import Volumen
 
 MODELO = "gemini-3.8-live"
@@ -192,7 +193,10 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
                         "description": "nombre de la emisora de la lista; vacío para la de siempre"},
         },
     },
-)])]
+)]),
+    # Búsqueda en Google (la hace Gemini, no la Pi): 5.000 búsquedas gratis por mes
+    # y después USD 14 cada 1.000. Para preguntas puntuales; ver prompt/base.md.
+    types.Tool(google_search=types.GoogleSearch())]
 
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -679,8 +683,10 @@ async def main():
                                   or (mensajes is not None and mensajes.entregando))
     recordatorios.radio = radio  # un recordatorio pausa la radio y la vuelve a poner
     asyncio.create_task(recordatorios.bucle())
+    vigilante = Vigilante(telegram_bot.leer_env(telegram_bot.CONFIG / "ajustes.env").get("NOMBRE_ASISTENTE", "El asistente"))
+    asyncio.create_task(vigilante.vigilar())
     mensajes = mensajeria.Mensajes(
-        cliente, radio=radio,
+        cliente, radio=radio, vigilante=vigilante,
         ocupado=lambda: atender.charla is not None or alerta.activa or recordatorios.confirmacion is not None)
     asyncio.create_task(mensajes.escuchar())
 
