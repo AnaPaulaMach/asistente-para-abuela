@@ -9,15 +9,7 @@ Se llama Beto. Es un parlantito con un anillo de luces, un botón y una ruedita 
 
 ## Un día con Beto
 
-**A la mañana** el anillo respira en rosa. A las 9 se pone lila: *"Acordate de tomar la pastilla."* Ella toca el botón para avisar que la tomó; si no, me llega un mensaje.
-
-**Al mediodía** toca el botón (azul: la escucha) y pregunta *"¿Cómo está el día?"*. Beto contesta en verde, nombrando la lluvia con calma porque le tienen miedo a las tormentas.
-
-**A la siesta** pide las noticias de su ciudad (sin policiales) o *"poneme la radio"*. Un toque la apaga.
-
-**Por la tarde** charlan. Beto conoce a la familia y sus cumpleaños, y le da tiempo para contestar aunque haga pausas.
-
-**Si pasa algo**, mantiene apretado el botón: Beto pregunta si es una emergencia y, si nadie cancela en diez segundos, me llega un aviso por Telegram. Funciona aunque no responda Gemini.
+**A la mañana** se pone lila y le recuerda la pastilla. **Durante el día** ella toca el botón y le pregunta el clima, las noticias o le pide la radio. **Si pasa algo**, mantiene apretado el botón y me llega un aviso por Telegram.
 
 ---
 
