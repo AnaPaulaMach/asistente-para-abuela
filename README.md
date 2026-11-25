@@ -9,7 +9,7 @@ Se llama Beto. Es un parlantito con un anillo de luces, un botón y una ruedita 
 
 ## Un día con Beto
 
-**A la mañana** se pone lila y le recuerda la pastilla. **Durante el día** ella toca el botón y le pregunta el clima, las noticias o le pide la radio. **Si pasa algo**, mantiene apretado el botón y me llega un aviso por Telegram.
+**A la mañana** la saluda con el clima y le recuerda la pastilla; si no da señales, me avisa. **De noche** deja una luz blanca suave. **Durante el día** ella toca el botón y le pregunta el clima, las noticias o le pide la radio. **Si pasa algo**, mantiene apretado el botón y me llega un aviso por Telegram.
 
 ---
 
@@ -71,6 +71,7 @@ flowchart LR
 | Luz | Qué está haciendo |
 |---|---|
 | 🩷 Rosa respirando | Esperando |
+| 🤍 Blanco cálido fijo | Esperando, de noche (luz de compañía) |
 | 🔵 Azul | Escuchando |
 | 🔵 Azul girando | Pensando (consulta el clima o las noticias, cambia el volumen) |
 | 🟢 Verde | Hablando |

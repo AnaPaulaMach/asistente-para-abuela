@@ -71,6 +71,20 @@ async def voz_en_partes(cliente, texto):
                 break
 
 
+async def decir_en_vivo(cliente, texto, placa="plughw:seeed2micvoicec"):
+    """Dice la frase por el parlante a medida que Gemini la genera (sin archivo)."""
+    parlante = await asyncio.create_subprocess_exec(
+        "aplay", "-q", "-D", placa, "-t", "raw", "-f", "S16_LE", "-r", "24000", "-c", "1",
+        stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+    try:
+        async for pedazo in voz_en_partes(cliente, texto):
+            parlante.stdin.write(pedazo)
+            await parlante.stdin.drain()
+    finally:
+        parlante.stdin.close()
+        await parlante.wait()
+
+
 async def grabar(cliente, texto, destino):
     audio = bytearray()
     async for pedazo in voz_en_partes(cliente, texto):

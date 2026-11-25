@@ -38,6 +38,7 @@ from luces import luz
 from radio import Radio
 import recordatorios as avisos
 from recordatorios import Recordatorios
+from dia import Dia
 from vigilante import Vigilante
 from volumen import Volumen
 
@@ -644,8 +645,9 @@ async def main():
     volumen = Volumen()
     volumen.al_cambiar = lambda nivel: luz("volumen", nivel)
     ruedita = RotaryEncoder(13, 26, max_steps=0)
-    ruedita.when_rotated_clockwise = lambda: volumen.subir()
-    ruedita.when_rotated_counter_clockwise = lambda: volumen.bajar()
+    dia = None  # se crea más abajo; girar la ruedita también es "señal de que está bien"
+    ruedita.when_rotated_clockwise = lambda: (volumen.subir(), dia and dia.senal())
+    ruedita.when_rotated_counter_clockwise = lambda: (volumen.bajar(), dia and dia.senal())
 
     atender.charla = None  # la charla en curso (la actualiza atender())
     radio = Radio()
@@ -689,6 +691,11 @@ async def main():
         cliente, radio=radio, vigilante=vigilante,
         ocupado=lambda: atender.charla is not None or alerta.activa or recordatorios.confirmacion is not None)
     asyncio.create_task(mensajes.escuchar())
+    # Buen día y chequeo de la mañana (dia.py): esperan si hay otra cosa sonando.
+    dia = Dia(cliente, radio=radio, ocupado=lambda: atender.charla is not None or alerta.activa
+              or mensajes.entregando or recordatorios.confirmacion is not None)
+    atender.dia = dia
+    asyncio.create_task(dia.bucle())
 
     try:
         await atender(cliente, toques, volumen, radio, recordatorios, mensajes)
@@ -700,6 +707,7 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
     """El ciclo de toques: charla, emergencia y confirmación de recordatorios."""
     while True:
         toque = await toques.get()
+        atender.dia.senal()  # tocó el botón: está bien
         if mensajes.atender_toque(toque):
             continue  # el toque era para contestar el mensaje que le llegó
         while mensajes.entregando:  # si está diciendo un mensaje, que termine (son segundos)

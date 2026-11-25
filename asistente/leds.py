@@ -32,6 +32,39 @@ ROJO = (255, 0, 0)
 BLANCO = (255, 255, 255)
 LILA = (150, 60, 255)
 CELESTE = (0, 170, 255)
+BLANCO_CALIDO = (255, 170, 90)
+
+# De noche, "esperando" es una luz blanca cálida, tenue y fija: compañía para no
+# estar a oscuras (y para ver por dónde camina). Horas en ajustes.env (NOCHE=21-7).
+def _horas_de_noche():
+    try:
+        for linea in open("/home/" + _usuario() + "/.config/asistente/ajustes.env"):
+            if linea.startswith("NOCHE="):
+                desde, hasta = linea.split("=", 1)[1].strip().split("-")
+                return int(desde), int(hasta)
+    except (OSError, ValueError):
+        pass
+    return 21, 7
+
+
+def _usuario():
+    # leds.py corre como root: el usuario dueño de la carpeta del programa.
+    import os
+    import pwd
+    return pwd.getpwuid(os.stat(__file__).st_uid).pw_name
+
+
+_noche = (None, False)  # (minuto, resultado): se revisa una vez por minuto, no en cada cuadro
+
+
+def es_de_noche():
+    global _noche
+    minuto = int(time.time() // 60)
+    if _noche[0] != minuto:
+        desde, hasta = _horas_de_noche()
+        hora = time.localtime().tm_hour
+        _noche = (minuto, hora >= desde or hora < hasta)
+    return _noche[1]
 
 
 def escalar(color, factor):
@@ -46,6 +79,8 @@ def ola(t, periodo):
 def dibujar(estado, extra, t):
     """Devuelve la lista de 16 colores para este instante."""
     if estado == "esperando":
+        if es_de_noche():
+            return [escalar(BLANCO_CALIDO, 0.35)] * CANTIDAD
         return [escalar(ROSA, 0.15 + 0.45 * ola(t, 4))] * CANTIDAD
     if estado == "escuchando":
         return [AZUL] * CANTIDAD

@@ -39,6 +39,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
 | `recordatorios.py` | Recordatorios diarios o de una sola vez (`27/11 17:00 texto`), con confirmación y aviso si no confirma; ella los agrega y borra hablando |
+| `dia.py` | El "buen día" (clima tranquilo, cumpleaños, recordatorios) y el chequeo: si a la mañana no tocó el botón ni la ruedita, avisa a la familia |
 | `vigilante.py` | Avisos por Telegram: se prendió (¿corte de luz?), temperatura de 75 °C o más, baja tensión, estuvo sin internet |
 | `memoria.py` | Notas de lo que ella cuenta (herramientas recordar y olvidar), privadas en `memoria.md`; las últimas 40 van en cada charla, se guardan 80 |
 | `mensajes.py` | Mensajes de la familia por Telegram (texto o audio) dichos en voz alta, con confirmación; solo de quienes están en `personas.toml`; ella contesta hablando (herramienta mandar_mensaje) |
