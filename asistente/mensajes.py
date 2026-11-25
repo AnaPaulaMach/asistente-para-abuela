@@ -194,18 +194,22 @@ class Mensajes:
         self._toque, self._cancelado = asyncio.Event(), False
         self.esperando_toque = True
         luz("mensaje")
+        print("  (¿contesta? esperando un toque)", flush=True)
         try:
             await asyncio.wait_for(self._toque.wait(), timeout=ESPERA_RESPUESTA)
         except asyncio.TimeoutError:
+            print("  (no quiso contestar)", flush=True)
             return
         finally:
             self.esperando_toque = False
         if self._cancelado:
             return
         luz("escuchando")
+        print("  🎤 grabando la respuesta…", flush=True)
         with tempfile.TemporaryDirectory() as tmp:
             wav, ogg = Path(tmp) / "respuesta.wav", Path(tmp) / "respuesta.ogg"
             if not await alerta.grabar_hasta_silencio(wav):
+                print("  (no la escuché hablar)", flush=True)
                 await alerta.decir("respuesta_sin_voz")
                 return
             await asyncio.to_thread(alerta.normalizar, wav)

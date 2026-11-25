@@ -65,13 +65,14 @@ def normalizar(wav, ganancia_max=20):
     print(f"   (volumen x{ganancia:.1f})", flush=True)
 
 
-async def grabar_hasta_silencio(wav, esperar=8, silencio=3, maximo=60, umbral=200):
+async def grabar_hasta_silencio(wav, esperar=10, silencio=3, maximo=60, umbral=120):
     """Graba al micrófono hasta que la persona se calla, sin Gemini (sin tokens).
 
     Mide el volumen cada 0,1 s (sin la "continua"): si en `esperar` segundos no
     empezó a hablar, no graba nada y devuelve False; si habló, corta después de
     `silencio` segundos callada, o a los `maximo`. Medido en el aparato: en
-    silencio da ~80 y una voz normal ~1100; `umbral` deja pasar la voz baja.
+    silencio da ~80 y una voz normal ~1100; `umbral` es el mismo que usa la
+    charla (350 con la señal x3), así entra también la voz bajita.
     """
     tasa, bloque = 16000, 3200   # 100 ms de audio mono de 16 bits
     mic = await asyncio.create_subprocess_exec(
