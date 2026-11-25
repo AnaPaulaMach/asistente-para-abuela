@@ -15,7 +15,7 @@ La placa de sonido usa un solo reloj para grabar y reproducir: el programa nunca
 
 1. Raspberry Pi OS Lite de 64 bits, con SSH y WiFi (de 2,4 GHz: la Zero 2 W no ve las de 5 GHz).
 2. Overlay de la placa de sonido: `dtparam=i2s=on` y `dtoverlay=respeaker-2mic-v2_0` en `/boot/firmware/config.txt`.
-3. Paquetes: `sudo apt install python3-gpiozero python3-lgpio opus-tools rsync`.
+3. Paquetes: `sudo apt install python3-gpiozero python3-lgpio opus-tools rsync mpv`.
 4. Copiá `asistente/` y `systemd/` a `~/asistente` en la Pi (o usá `desplegar.sh` desde tu compu).
 5. Dos entornos de Python:
    ```bash
@@ -24,7 +24,7 @@ La placa de sonido usa un solo reloj para grabar y reproducir: el programa nunca
    python3 -m venv ~/asistente/venv-luces
    ~/asistente/venv-luces/bin/pip install rpi_ws281x
    ```
-6. Configuración privada en `~/.config/asistente/` (mirá `ejemplos/`): `secretos.env` (permisos 600), `ajustes.env`, `perfil.md`, `personas.toml` (600) y `recordatorios.txt`.
+6. Configuración privada en `~/.config/asistente/` (mirá `ejemplos/`): `secretos.env` (permisos 600), `ajustes.env`, `perfil.md`, `personas.toml` (600), `recordatorios.txt` y `radios.toml`.
 7. Frases fijas (emergencia, recordatorios): `~/asistente/venv/bin/python ~/asistente/frases.py`
 8. Servicios: `bash ~/asistente/instalar-servicios.sh`
 
@@ -39,6 +39,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
 | `recordatorios.py` | Recordatorios diarios con confirmación y aviso si no confirma |
+| `radio.py` | Emisoras por internet con mpv (lista privada en `radios.toml`); un toque la apaga, se apaga sola a las 3 horas |
 | `noticias.py` | Titulares del día (RSS de Google Noticias, sin clave) sin policiales ni tragedias; herramienta de Gemini |
 | `clima.py` | El pronóstico de Open-Meteo (herramienta de Gemini) |
 | `volumen.py` | Niveles del 1 al 10, guardados; la ruedita y Gemini usan lo mismo |

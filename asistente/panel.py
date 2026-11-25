@@ -7,6 +7,7 @@
     ~/asistente/venv/bin/python ~/asistente/panel.py recordatorio-borrar    < "09:00 Tomar la pastilla"
     ~/asistente/venv/bin/python ~/asistente/panel.py reiniciar
     ~/asistente/venv/bin/python ~/asistente/panel.py probar-luces
+    ~/asistente/venv/bin/python ~/asistente/panel.py radio-apagar
 
 Siempre contesta UNA línea en JSON (un formato de texto que otro programa lee
 fácil). Los textos van por la entrada estándar y no como argumentos: así un
@@ -108,8 +109,17 @@ def estado():
         "cumples": proximos_cumples(),
         "frases": ultimas_frases(),
         "notas": [l for l in memoria.read_text().splitlines() if l.strip()][-10:] if memoria.exists() else [],
+        "radio": radio_sonando(),
         "hora": time.strftime("%H:%M"),
     }
+
+
+def radio_sonando():
+    """El nombre de la radio que suena, o "" (la charla lo anota al ponerla)."""
+    archivo = CONFIG / "radio-sonando"
+    if archivo.exists() and correr("pgrep", "-x", "mpv"):
+        return archivo.read_text().strip()
+    return ""
 
 
 def volumen(nivel):
@@ -182,6 +192,9 @@ def main():
             r = {"reiniciado": True}
         elif orden == "probar-luces":
             r = probar_luces()
+        elif orden == "radio-apagar":
+            socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"radio apagar", CONTROL)
+            r = {"radio": "apagada"}
         else:
             raise ValueError(f"no conozco la orden {orden}")
         print(json.dumps({"ok": True, **r}, ensure_ascii=False))

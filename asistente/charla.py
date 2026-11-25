@@ -28,9 +28,11 @@ import alerta
 import clima
 import noticias
 import personas
+import radio as radios
 import telegram_bot
 from frases import VOZ  # una sola voz para la charla y las frases grabadas
 from luces import luz
+from radio import Radio
 from recordatorios import Recordatorios
 from volumen import Volumen
 
@@ -97,6 +99,17 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
                                   "description": "true SOLO si ella pregunta directamente por un hecho policial o un accidente"},
         },
     },
+), types.FunctionDeclaration(
+    name="poner_radio",
+    description=("Pone una radio por el parlante. Empieza cuando termines de hablar; ella la apaga "
+                 "tocando el botón. Usala cuando pida la radio, música o una emisora."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "emisora": {"type": "string",
+                        "description": "nombre de la emisora de la lista; vacío para la de siempre"},
+        },
+    },
 )])]
 
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -116,6 +129,10 @@ def instrucciones():
     if PERFIL.exists() or gente:
         sobre_ella = PERFIL.read_text().strip() if PERFIL.exists() else ""
         partes.append("Sobre ella y su gente:\n" + "\n".join(t for t in (gente, sobre_ella) if t))
+    lista = radios.emisoras()
+    if lista:
+        partes.append("Radios que podés poner con poner_radio:\n" + "\n".join(
+            f"- {r['nombre']}: {r.get('descripcion', '')}" for r in lista))
     ahora = time.localtime()
     partes.append(f"Hoy es {DIAS[ahora.tm_wday]} {ahora.tm_mday} de {MESES[ahora.tm_mon - 1]} "
                   f"de {ahora.tm_year} y son las {ahora.tm_hour}:{ahora.tm_min:02d}.")
@@ -193,6 +210,8 @@ class Charla:
         self.automatico = False  # escuchando solo, esperando que conteste
         self.oyo_algo = False    # Gemini transcribió algo de lo que dijo ella
         self.ultima_actividad = time.monotonic()  # cuándo habló alguien por última vez
+        self.radio = None         # la Radio de main()
+        self.radio_pendiente = None  # emisora a poner cuando termine de hablar
         self.tokens = Counter()  # consumo de esta conexión, por tipo
         self.inicio = time.monotonic()
 
@@ -360,6 +379,17 @@ class Charla:
                     resultado = await asyncio.to_thread(clima.consultar)
                 except Exception as e:  # sin internet, etc.: que lo diga, no que invente
                     resultado = {"error": f"no pude consultar el clima ({e})"}
+            elif llamada.name == "poner_radio":
+                elegida = radios.buscar(args.get("emisora") or "")
+                if elegida:
+                    # No suena todavía: Gemini está por hablar y la placa reproduce
+                    # una sola cosa por vez. Arranca al terminar la respuesta.
+                    self.radio_pendiente = elegida["nombre"]
+                    resultado = {"ok": True, "emisora": elegida["nombre"],
+                                 "nota": "empieza apenas termines de hablar; decile que la apaga tocando el botón"}
+                else:
+                    resultado = {"error": "no tengo esa emisora",
+                                 "disponibles": [r["nombre"] for r in radios.emisoras()]}
             elif llamada.name == "noticias":
                 try:
                     resultado = await asyncio.to_thread(
@@ -406,7 +436,11 @@ class Charla:
                     pregunto = "?" in self.respuesta and not descartada
                     self.respuesta = ""
                     await self.fin_de_respuesta()  # espera a que termine de sonar
-                    if pregunto:
+                    if self.radio_pendiente and self.radio:
+                        self.radio.tocar(self.radio_pendiente)
+                        self.radio_pendiente = None
+                        print("(sonando la radio; un toque la apaga)", flush=True)
+                    elif pregunto:
                         # Le preguntó algo: escuchamos solos, sin que toque el botón.
                         await self.escuchar()
                         self.empezar_envio(espera=ESPERA_RESPUESTA)
@@ -452,10 +486,15 @@ async def main():
     ruedita.when_rotated_clockwise = lambda: volumen.subir()
     ruedita.when_rotated_counter_clockwise = lambda: volumen.bajar()
 
-    charla = None
-    # Mientras el asistente escucha o habla no pita: lo apagaría (un solo reloj).
-    volumen.ocupado = lambda: charla is not None and (
-        (charla.mic is not None and charla.mic.returncode is None) or charla.parlante is not None)
+    atender.charla = None  # la charla en curso (la actualiza atender())
+    radio = Radio()
+
+    def ocupado_audio():
+        # Mientras escucha, habla o suena la radio no pita: lo apagaría (un solo reloj).
+        c = atender.charla
+        return radio.sonando() or (c is not None and (c.escuchando() or c.parlante is not None))
+
+    volumen.ocupado = ocupado_audio
 
     print(f"Listo ({MODELO}, voz {VOZ}, volumen {volumen.nivel}/10). "
           "Tocá el botón y hablá; la ruedita cambia el volumen. Ctrl+C para salir.", flush=True)
@@ -468,22 +507,38 @@ async def main():
             palabras = datos.decode(errors="ignore").split()
             if len(palabras) == 2 and palabras[0] == "volumen" and palabras[1].isdigit():
                 volumen.fijar(int(palabras[1]))
+            elif palabras == ["radio", "apagar"]:
+                radio.parar()
+                luz("esperando")
 
     await loop.create_datagram_endpoint(Control, local_addr=("127.0.0.1", 47475))
 
     # Los recordatorios corren en paralelo ("tarea" de asyncio) y esperan
     # cuando hay una charla o una emergencia en curso.
-    recordatorios = Recordatorios(cliente, ocupado=lambda: charla is not None or alerta.activa)
+    recordatorios = Recordatorios(cliente, ocupado=lambda: atender.charla is not None or alerta.activa)
+    recordatorios.radio = radio  # un recordatorio pausa la radio y la vuelve a poner
     asyncio.create_task(recordatorios.bucle())
 
+    try:
+        await atender(cliente, toques, volumen, radio, recordatorios)
+    finally:
+        radio.parar()  # mpv corre aparte: si la charla se cierra, que no quede sonando
+
+
+async def atender(cliente, toques, volumen, radio, recordatorios):
+    """El ciclo de toques: charla, emergencia y confirmación de recordatorios."""
     while True:
         toque = await toques.get()
+        if radio.sonando():
+            radio.parar()  # cualquier toque apaga la radio (y sigue: hablar o emergencia)
         if toque == "larga":
             await alerta.emergencia(toques)
             continue
         if recordatorios.confirmar():
             continue  # el toque era para decir "listo" a un recordatorio
         charla = Charla(None, volumen)
+        charla.radio = radio
+        atender.charla = charla  # para volumen.ocupado y los recordatorios
         receptor = None
         emergencia = False
         await charla.escuchar()  # el micrófono arranca ya, antes de conectar
@@ -510,13 +565,15 @@ async def main():
                         # con la escucha automática. Se cierra cuando nadie habló
                         # en INACTIVIDAD segundos y no está escuchando ni hablando.
                         quieto = time.monotonic() - charla.ultima_actividad
-                        if charla.escuchando() or charla.parlante:
+                        if charla.escuchando() or charla.parlante or radio.sonando():
                             continue
                         if quieto > 20:
                             luz("esperando")  # por si quedó "pensando" y Gemini no contestó
                         if quieto < INACTIVIDAD:
                             continue
                         break
+                    if radio.sonando():
+                        radio.parar()
                     if espera.result() == "larga":
                         # Cerramos la charla primero: Gemini no tiene que hablar encima.
                         emergencia = True
@@ -537,7 +594,7 @@ async def main():
                     charla.empezar_envio()
                 if receptor.done() and not receptor.cancelled() and receptor.exception():
                     print(f"(se cortó la conexión: {receptor.exception()})", flush=True)
-            luz("esperando")
+            luz("radio" if radio.sonando() else "esperando")
         except Exception as e:
             # Sin internet, sin saldo, o tardó demasiado: naranja y que lo diga.
             luz("error")
@@ -554,7 +611,7 @@ async def main():
                 await asyncio.gather(receptor, return_exceptions=True)
             await charla.callar()
             charla.anotar_consumo()
-            charla = None
+            charla = atender.charla = None
         print("(conexión cerrada; el próximo toque la vuelve a abrir)", flush=True)
         if emergencia:
             await alerta.emergencia(toques)

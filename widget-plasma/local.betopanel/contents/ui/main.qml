@@ -56,7 +56,7 @@ PlasmoidItem {
         if (statusError) return "No llego a la Pi"
         if (!d) return "Consultando…"
         const charla = activo(d.servicios.charla) ? "charla activa" : "charla DETENIDA"
-        return charla + " · volumen " + (d.volumen ?? "?") + "/10 · " + d.recordatorios.length + " recordatorios"
+        return charla + (d.radio ? " · 📻 " + d.radio : "") + " · volumen " + (d.volumen ?? "?") + "/10 · " + d.recordatorios.length + " recordatorios"
     }
     function cuando(dias) {
         return dias === 0 ? "¡hoy!" : dias === 1 ? "mañana" : "en " + dias + " días"
@@ -296,6 +296,26 @@ PlasmoidItem {
             Chico {
                 text: root.d ? "📶 " + (root.d.wifi || "sin WiFi") + " · 🌡 " + (root.d.temperatura ?? "?")
                                + " °C · prendida hace " + root.d.encendida_horas + " h" : ""
+            }
+        }
+
+        // Radio (solo si está sonando)
+        Tarjeta {
+            visible: root.d !== null && !!root.d.radio
+            RowLayout {
+                Layout.fillWidth: true
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    text: "📻 Sonando: " + (root.d ? root.d.radio : "")
+                    font.bold: true
+                    color: root.rosa
+                }
+                PlasmaComponents3.Button {
+                    text: "Apagar"
+                    icon.name: "media-playback-stop"
+                    enabled: root.busy === ""
+                    onClicked: root.orden("radio-apagar", undefined, "Apagando la radio…", "Radio apagada")
+                }
             }
         }
 

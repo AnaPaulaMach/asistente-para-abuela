@@ -1,0 +1,13 @@
+# Va en la Pi: ~/.config/asistente/radios.toml
+# Las emisoras que Beto puede poner. La primera es "la de siempre".
+# Para buscar la dirección de una radio: https://www.radio-browser.info
+
+[[radio]]
+nombre = "Folklórica"
+url = "https://sa.mp3.icecast.magma.edge-access.net/sc_rad38"
+descripcion = "Radio Nacional Folklórica: chacarera, zamba y folklore"
+
+[[radio]]
+nombre = "Nacional"
+url = "https://sa.mp3.icecast.magma.edge-access.net/sc_rad1"
+descripcion = "Radio Nacional: noticias y programas de todo el país"

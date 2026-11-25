@@ -64,6 +64,7 @@ class Recordatorios:
         # El reloj anota en la cola y otra tarea los dice de a uno: así uno que
         # espera confirmación no hace perder el siguiente.
         self.cola = asyncio.Queue()
+        self.radio = None           # la Radio de charla.py: se pausa durante el recordatorio
 
     def confirmar(self):
         """Lo llama charla.py ante un toque corto. True si era para un recordatorio."""
@@ -116,6 +117,8 @@ class Recordatorios:
         while self.ocupado():  # si está charlando o en una emergencia, espera
             await asyncio.sleep(5)
         print(f"⏰ Recordatorio: {texto}", flush=True)
+        # La placa reproduce una sola cosa: si suena la radio, se pausa y vuelve después.
+        pausada = self.radio.parar() if self.radio and self.radio.sonando() else None
         voz = voz_de(texto)
         self.confirmacion = asyncio.Event()
         try:
@@ -141,4 +144,7 @@ class Recordatorios:
                 print(f"   ✗ {e}", flush=True)
         finally:
             self.confirmacion = None
-            luz("esperando")
+            if pausada:
+                self.radio.tocar(pausada)
+            else:
+                luz("esperando")
