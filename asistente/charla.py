@@ -27,6 +27,7 @@ from gpiozero import Button, RotaryEncoder
 import alerta
 import clima
 import llamadas as llamar
+import memoria
 import mensajes as mensajeria  # "llamadas" ya es la lista de pedidos de Gemini
 import noticias
 import personas
@@ -115,6 +116,27 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
         },
     },
 ), types.FunctionDeclaration(
+    name="recordar",
+    description=("Guarda una nota corta de algo que ella te contó y conviene recordar en otra "
+                 "charla: una visita, un plan, cómo se siente, algo que le gusta o le preocupa."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "nota": {"type": "string",
+                     "description": ("en tercera persona, corta y con fechas concretas, por ejemplo "
+                                     "'el jueves 27 viene su nieta a visitarla' o 'le duele la rodilla'")},
+        },
+        "required": ["nota"],
+    },
+), types.FunctionDeclaration(
+    name="olvidar",
+    description="Borra las notas sobre un tema cuando ella pide que te olvides de algo.",
+    parameters_json_schema={
+        "type": "object",
+        "properties": {"sobre": {"type": "string", "description": "palabras clave de lo que hay que olvidar"}},
+        "required": ["sobre"],
+    },
+), types.FunctionDeclaration(
     name="hora_actual",
     description=("Devuelve la fecha y la hora exactas de donde vive ella (Argentina). Usala SIEMPRE "
                  "que pregunte la hora, el día o la fecha: no la calcules ni la supongas."),
@@ -162,6 +184,9 @@ def instrucciones():
     if PERFIL.exists() or gente:
         sobre_ella = PERFIL.read_text().strip() if PERFIL.exists() else ""
         partes.append("Sobre ella y su gente:\n" + "\n".join(t for t in (gente, sobre_ella) if t))
+    notas = memoria.para_el_prompt()
+    if notas:
+        partes.append(notas)
     llegados = mensajeria.recientes()
     if llegados:
         partes.append("Mensajes que le llegaron por Telegram en las últimas 24 horas (ya se los dijiste; "
@@ -423,6 +448,10 @@ class Charla:
                         llamar.pedir, args.get("persona") or "", args.get("motivo") or "")
                 except Exception as e:  # sin internet: que no prometa que avisó
                     resultado = {"error": f"no pude avisar ({e})"}
+            elif llamada.name == "recordar":
+                resultado = memoria.recordar(args.get("nota") or "")
+            elif llamada.name == "olvidar":
+                resultado = memoria.olvidar(args.get("sobre") or "")
             elif llamada.name == "hora_actual":
                 ahora = time.localtime()  # el reloj de la Pi: hora de Argentina, sincronizada
                 resultado = {"hora": f"{ahora.tm_hour}:{ahora.tm_min:02d}",
