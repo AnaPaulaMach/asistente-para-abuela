@@ -13,8 +13,9 @@ import sys
 import wave
 from pathlib import Path
 
-from google import genai
-from google.genai import types
+# La librería de Gemini se carga recién al usarla (tarda casi 5 segundos en la
+# Pi Zero): así los programas que solo leen recordatorios, como panel.py,
+# no la pagan.
 
 MODELO = "gemini-3.8-live"
 VOZ = "Algenib"
@@ -49,6 +50,7 @@ async def voz_en_partes(cliente, texto):
     """La frase dicha con la voz del asistente, en pedacitos de audio (PCM de
     24 kHz) a medida que Gemini los genera: se pueden ir reproduciendo sin
     esperar el final (Gemini genera la voz a la velocidad en que se habla)."""
+    from google.genai import types
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         system_instruction=("Hablás en español rioplatense, con calma y calidez. "
@@ -82,6 +84,8 @@ async def grabar(cliente, texto, destino):
 
 async def main():
     CARPETA.mkdir(exist_ok=True)
+    from google import genai
+    from google.genai import types
     cliente = genai.Client(api_key=clave_gemini(),
                            http_options=types.HttpOptions(api_version="v1beta"))
     elegidas = sys.argv[1:] or list(FRASES)
