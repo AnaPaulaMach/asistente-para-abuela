@@ -105,5 +105,6 @@ El paso a paso técnico está en [docs/como-funciona.md](docs/como-funciona.md).
 - `ejemplos/`: plantillas de la configuración privada (claves, perfil, familia, recordatorios).
 - `pruebas/`: los programitas de las primeras etapas (botón, Telegram, voces).
 - `desplegar.sh`: copia el código de la compu a la Pi y reinicia.
+- `widget-plasma/`: un widget para el escritorio KDE Plasma que muestra cómo está Beto y deja cambiar el volumen y los recordatorios. Se instala con `kpackagetool6 -t Plasma/Applet -i widget-plasma/local.betopanel`.
 
 Lo construí de a una etapa por vez: primero que suene y que el botón ande, después Telegram, la charla, las luces, la emergencia y que arranque solo. Cada etapa se podía probar antes de pasar a la siguiente.

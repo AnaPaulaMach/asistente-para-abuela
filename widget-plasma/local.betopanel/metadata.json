@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "local.betopanel",
+        "Name": "Beto, el asistente de la abuela",
+        "Description": "Estado, volumen, recordatorios y gasto del asistente de voz de la abuela (por ssh y Tailscale)",
+        "Icon": "audio-speakers",
+        "Category": "System Information",
+        "Version": "1.0",
+        "License": "GPL-2.0-or-later",
+        "Authors": [
+            { "Name": "Ana Paula" }
+        ]
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
