@@ -39,6 +39,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
 | `recordatorios.py` | Recordatorios diarios con confirmación y aviso si no confirma |
+| `llamadas.py` | "Decile a … que me llame": avisa por Telegram (a esa persona si tiene chat, si no a la familia con su teléfono), uno cada 10 minutos como mucho |
 | `radio.py` | Emisoras por internet con mpv (lista privada en `radios.toml`); un toque la apaga, se apaga sola a las 3 horas |
 | `noticias.py` | Titulares del día (RSS de Google Noticias, sin clave) sin policiales ni tragedias; herramienta de Gemini |
 | `clima.py` | El pronóstico de Open-Meteo (herramienta de Gemini) |

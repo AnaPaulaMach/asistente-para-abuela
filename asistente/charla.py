@@ -26,6 +26,7 @@ from gpiozero import Button, RotaryEncoder
 
 import alerta
 import clima
+import llamadas as llamar  # "llamadas" ya es la lista de pedidos de Gemini
 import noticias
 import personas
 import radio as radios
@@ -97,6 +98,19 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
                      "description": "palabras para buscar, por ejemplo 'fútbol' o 'Añatuya'; vacío para lo general"},
             "incluir_delicadas": {"type": "boolean",
                                   "description": "true SOLO si ella pregunta directamente por un hecho policial o un accidente"},
+        },
+    },
+), types.FunctionDeclaration(
+    name="pedir_llamada",
+    description=("Le avisa por Telegram a alguien de la familia que ella quiere que la llamen. "
+                 "Vos no podés llamar: usala cuando pida hablar con alguien o que la llamen."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "persona": {"type": "string",
+                        "description": "a quién quiere hablarle, como ella lo dice; vacío si no dijo"},
+            "motivo": {"type": "string",
+                       "description": "lo que quiere decirle, solo si lo dijo, en sus palabras y corto"},
         },
     },
 ), types.FunctionDeclaration(
@@ -379,6 +393,12 @@ class Charla:
                     resultado = await asyncio.to_thread(clima.consultar)
                 except Exception as e:  # sin internet, etc.: que lo diga, no que invente
                     resultado = {"error": f"no pude consultar el clima ({e})"}
+            elif llamada.name == "pedir_llamada":
+                try:
+                    resultado = await asyncio.to_thread(
+                        llamar.pedir, args.get("persona") or "", args.get("motivo") or "")
+                except Exception as e:  # sin internet: que no prometa que avisó
+                    resultado = {"error": f"no pude avisar ({e})"}
             elif llamada.name == "poner_radio":
                 elegida = radios.buscar(args.get("emisora") or "")
                 if elegida:
