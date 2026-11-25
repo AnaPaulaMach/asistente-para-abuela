@@ -1,0 +1,15 @@
+# Las luces del asistente. Corre como root porque rpi_ws281x escribe en el hardware.
+# No se copia a mano: lo instala instalar-servicios.sh (reemplaza @CASA@).
+[Unit]
+Description=Luces del asistente (16 LEDs WS2812)
+
+[Service]
+ExecStart=@CASA@/asistente/venv-luces/bin/python @CASA@/asistente/leds.py
+# Python escribe enseguida en el registro (journalctl) en vez de juntar texto.
+Environment=PYTHONUNBUFFERED=1
+# Si se cae, vuelve a arrancar a los 3 segundos.
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

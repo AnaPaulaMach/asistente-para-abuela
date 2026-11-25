@@ -1,0 +1,21 @@
+# La charla del asistente: botón, ruedita, Gemini, emergencia y recordatorios.
+# No se copia a mano: lo instala instalar-servicios.sh (reemplaza @USUARIO@ y @CASA@).
+[Unit]
+Description=Charla del asistente (Gemini Live, emergencia y recordatorios)
+# Arranca después de las luces y de tener red; si las luces fallan, la charla arranca igual.
+After=network-online.target sound.target asistente-luces.service
+Wants=network-online.target asistente-luces.service
+# Si se cae muchas veces seguidas no se rinde: sigue reintentando cada 5 s.
+StartLimitIntervalSec=0
+
+[Service]
+# Con tu usuario, no como root: lee tus claves y no tiene más permisos de los necesarios.
+User=@USUARIO@
+WorkingDirectory=@CASA@/asistente
+ExecStart=@CASA@/asistente/venv/bin/python @CASA@/asistente/charla.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

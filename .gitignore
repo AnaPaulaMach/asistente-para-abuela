@@ -1,0 +1,11 @@
+# Datos personales: nunca al repositorio
+privado/
+*.env
+# Generados al usar el asistente
+__pycache__/
+*.wav
+*.ogg
+*.log
+venv/
+venv-luces/
+!ejemplos/*.env

@@ -1,0 +1,5 @@
+# Va en la Pi: ~/.config/asistente/recordatorios.txt
+# Uno por línea, "HH:MM texto". Las líneas con # no se usan.
+09:00 Rosita, acordate de tomar la pastilla de la presión.
+13:00 Es hora de almorzar.
+18:00 ¿Regaste las plantas hoy?

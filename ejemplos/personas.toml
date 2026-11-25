@@ -1,0 +1,26 @@
+# Va en la Pi: ~/.config/asistente/personas.toml, con permisos 600.
+# Campos (todos opcionales menos nombre): apodo, relacion, vive_con_ella,
+# cumpleanos ("DD/MM"), telefono, telegram_usuario, telegram (chat), notas.
+# A Gemini solo le llegan nombre, apodo, relación, cumpleaños y notas.
+
+[ella]
+nombre = "Rosa"
+apodo = "Rosita"
+cumpleanos = "01/03"
+
+[[persona]]
+nombre = "Carlos"
+relacion = "hijo"
+vive_con_ella = true
+cumpleanos = "15/08"
+
+[[persona]]
+nombre = "Lucía"
+relacion = "nieta, hija de Carlos; armó este parlante"
+cumpleanos = "02/11"
+telegram_usuario = "lucia_ejemplo"
+
+[[persona]]
+nombre = "Coco"
+relacion = "el gato de la casa"
+vive_con_ella = true
