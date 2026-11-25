@@ -45,7 +45,10 @@ def clave_gemini():
             return linea.split("=", 1)[1].strip()
 
 
-async def grabar(cliente, texto, destino):
+async def voz_en_partes(cliente, texto):
+    """La frase dicha con la voz del asistente, en pedacitos de audio (PCM de
+    24 kHz) a medida que Gemini los genera: se pueden ir reproduciendo sin
+    esperar el final (Gemini genera la voz a la velocidad en que se habla)."""
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         system_instruction=("Hablás en español rioplatense, con calma y calidez. "
@@ -53,7 +56,6 @@ async def grabar(cliente, texto, destino):
         speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOZ))),
     )
-    audio = bytearray()
     async with cliente.aio.live.connect(model=MODELO, config=config) as sesion:
         await sesion.send_client_content(
             turns=types.Content(role="user", parts=[types.Part(text=texto)]))
@@ -61,9 +63,15 @@ async def grabar(cliente, texto, destino):
             sc = msg.server_content
             for parte in (sc.model_turn.parts if sc and sc.model_turn else []):
                 if parte.inline_data:
-                    audio += parte.inline_data.data
+                    yield parte.inline_data.data
             if sc and sc.turn_complete:
                 break
+
+
+async def grabar(cliente, texto, destino):
+    audio = bytearray()
+    async for pedazo in voz_en_partes(cliente, texto):
+        audio += pedazo
     with wave.open(str(destino), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)

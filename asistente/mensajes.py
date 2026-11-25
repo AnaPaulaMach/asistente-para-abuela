@@ -164,8 +164,7 @@ class Mensajes:
             luz("mensaje")
             try:
                 await self._entregar(m)
-                await asyncio.to_thread(telegram_bot.mandar_texto, m["chat"],
-                                        f"✓ Se lo dije a {_ella()} ({time.strftime('%H:%M')}).")
+                self._confirmar(m["chat"], f"✓ Se lo dije a {_ella()} ({time.strftime('%H:%M')}).")
                 if not self._cancelado:
                     await self._ofrecer_respuesta(m)
             except Exception as e:
@@ -243,21 +242,60 @@ class Mensajes:
         print(f"🎤 {_ella()} le contestó a {m['de']}", flush=True)
 
     async def _entregar(self, m):
+        # Lo lento (que Gemini prepare la voz del mensaje, o bajar el audio) arranca
+        # en paralelo, ANTES de anunciar: mientras suena "Te llegó un mensaje de…",
+        # el mensaje ya se está preparando, y casi no queda silencio en el medio.
+        t0 = time.monotonic()
         if "texto" in m:
             # En dos partes: si va todo junto ("... Dice: Hola"), Gemini lee
-            # solo el mensaje y se saltea quién lo manda.
+            # solo el mensaje y se saltea quién lo manda. La voz del mensaje se
+            # va guardando en una cola mientras suena el anuncio, y después se
+            # reproduce a medida que llega (no queda en ningún archivo).
+            pedazos = asyncio.Queue()
+
+            async def generar():
+                try:
+                    async for pedazo in frases.voz_en_partes(self.cliente, m["texto"]):
+                        pedazos.put_nowait(pedazo)
+                finally:
+                    pedazos.put_nowait(None)
+
+            generando = asyncio.create_task(generar())
             await self._tocar(await self._voz(f"Te llegó un mensaje de {m['de']}.", guardar=True))
-            wav = await self._voz(m["texto"])
-            try:
-                await self._tocar(wav)
-            finally:
-                wav.unlink(missing_ok=True)  # el mensaje dicho no queda guardado
+            parlante = await asyncio.create_subprocess_exec(
+                "aplay", "-q", "-D", alerta.PLACA, "-t", "raw", "-f", "S16_LE", "-r", "24000", "-c", "1",
+                stdin=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+            primero = True
+            while (pedazo := await pedazos.get()) is not None:
+                if primero:
+                    print(f"  (el mensaje empezó a sonar a los {time.monotonic() - t0:.1f} s)", flush=True)
+                    primero = False
+                parlante.stdin.write(pedazo)
+                await parlante.stdin.drain()
+            parlante.stdin.close()
+            await parlante.wait()
+            await generando  # si Gemini falló, que se entere quien lo mandó
             _anotar(m["de"], m["texto"])
             return
-        await self._tocar(await self._voz(f"Te llegó un audio de {m['de']}.", guardar=True))
         with tempfile.TemporaryDirectory() as tmp:
             ogg, wav = Path(tmp) / "audio.ogg", Path(tmp) / "audio.wav"
-            await asyncio.to_thread(telegram_bot.descargar, m["audio"], ogg)
-            await alerta._correr("opusdec", "--quiet", "--rate", "48000", str(ogg), str(wav))
+
+            async def preparar():
+                await asyncio.to_thread(telegram_bot.descargar, m["audio"], ogg)
+                await alerta._correr("opusdec", "--quiet", "--rate", "48000", str(ogg), str(wav))
+
+            listo = asyncio.create_task(preparar())
+            await self._tocar(await self._voz(f"Te llegó un audio de {m['de']}.", guardar=True))
+            await listo
+            print(f"  (audio listo a los {time.monotonic() - t0:.1f} s)", flush=True)
             await self._tocar(wav)
         _anotar(m["de"], "(un audio)")
+
+    def _confirmar(self, chat, texto):
+        """Manda la confirmación de fondo: que no haga esperar a la pregunta."""
+        async def mandar():
+            try:
+                await asyncio.to_thread(telegram_bot.mandar_texto, chat, texto)
+            except RuntimeError as e:
+                print(f"(no pude confirmar: {e})", flush=True)
+        asyncio.create_task(mandar())
