@@ -25,12 +25,14 @@ from pathlib import Path
 
 import alerta
 import frases
+import tareas
 import telegram_bot
 from luces import luz
 
 ARCHIVO = Path.home() / ".config" / "asistente" / "recordatorios.txt"
 VOCES = Path.home() / "asistente" / "frases" / "recordatorios"
 REPETIR_CADA = 180   # segundos entre repeticiones si no confirma
+REINTENTO = 600      # segundos para volver a intentar grabar una voz que falló
 VECES = 3            # repeticiones antes de avisar a la familia
 
 
@@ -81,6 +83,14 @@ def _simple(texto):
 
 def _escribir(lineas):
     ARCHIVO.write_text("".join(l + "\n" for l in lineas))
+    ARCHIVO.chmod(0o600)   # puede tener datos de salud (remedios, médicos)
+
+
+def _borrar_voces(textos):
+    """Borra la voz grabada de los textos que ya no usa ningún recordatorio."""
+    en_uso = {r["texto"] for r in todos()}
+    for texto in set(textos) - en_uso:
+        voz_de(texto).unlink(missing_ok=True)
 
 
 def agregar(hora, texto, fecha=None):
@@ -91,6 +101,7 @@ def agregar(hora, texto, fecha=None):
     linea = (f"{r['fecha']} " if r["fecha"] else "") + f"{r['hora']} {r['texto']}"
     previo = ARCHIVO.read_text() if ARCHIVO.exists() else ""
     ARCHIVO.write_text(previo + ("" if previo.endswith("\n") or not previo else "\n") + linea + "\n")
+    ARCHIVO.chmod(0o600)
     return {"fecha": r["fecha"], "hora": r["hora"], "texto": r["texto"]}
 
 
@@ -108,6 +119,7 @@ def borrar(sobre="", exacto=""):
             quedan.append(linea)
     if borrados:
         _escribir(quedan)
+        _borrar_voces(_parsear(l)["texto"] for l in borrados)
     return borrados
 
 
@@ -128,6 +140,7 @@ def _limpiar_viejos():
         quedan.append(linea)
     if len(quedan) != len(lineas):
         _escribir(quedan)
+        _borrar_voces(r["texto"] for r in map(_parsear, lineas) if r and r["linea"] not in quedan)
 
 
 def voz_de(texto):
@@ -155,8 +168,10 @@ class Recordatorios:
         return False
 
     async def preparar(self):
-        """Graba la voz de los recordatorios nuevos o cambiados."""
+        """Graba la voz de los recordatorios nuevos o cambiados. Devuelve True si
+        quedaron todas; si alguna falló (sin internet), bucle() reintenta."""
         VOCES.mkdir(parents=True, exist_ok=True)
+        todo_bien = True
         for texto in [r["texto"] for r in todos()]:
             destino = voz_de(texto)
             if not destino.exists():
@@ -164,18 +179,26 @@ class Recordatorios:
                     await frases.grabar(self.cliente, texto, destino)
                     print(f"(voz grabada para «{texto}»)", flush=True)
                 except Exception as e:
-                    print(f"(no pude grabar «{texto}»: {e}; lo intento más tarde)", flush=True)
+                    destino.unlink(missing_ok=True)   # un archivo a medias no sirve
+                    print(f"(no pude grabar «{texto}»: {e}; reintento en {REINTENTO // 60} min)", flush=True)
+                    todo_bien = False
+        return todo_bien
 
     async def bucle(self):
         """Mira el reloj cada 5 segundos y anota los recordatorios de este minuto."""
-        asyncio.create_task(self._decir_en_orden())
-        ultimo_minuto, modificado = None, None
+        tareas.lanzar(self._decir_en_orden(), "decir recordatorios")
+        ultimo_minuto, modificado, reintentar, grabando = None, None, 0.0, None
         while True:
             try:
                 cambio = ARCHIVO.stat().st_mtime if ARCHIVO.exists() else None
-                if cambio != modificado:  # el archivo cambió: grabar lo nuevo
-                    modificado = cambio
-                    await self.preparar()
+                if grabando and grabando.done():
+                    # Terminó de grabar voces: si alguna falló, reintentar más tarde.
+                    reintentar = 0.0 if grabando.result() else time.time() + REINTENTO
+                    grabando = None
+                if grabando is None and (cambio != modificado or (reintentar and time.time() > reintentar)):
+                    # En una tarea aparte: si Gemini tarda, el reloj sigue andando.
+                    modificado, reintentar = cambio, 0.0
+                    grabando = tareas.lanzar(self.preparar(), "voces de recordatorios")
                 minuto = time.strftime("%H:%M")
                 if minuto != ultimo_minuto:
                     ultimo_minuto = minuto
@@ -209,6 +232,8 @@ class Recordatorios:
         self.confirmacion = asyncio.Event()
         try:
             for _ in range(VECES):
+                while alerta.activa:   # en plena emergencia no se repite el recordatorio
+                    await asyncio.sleep(2)
                 luz("recordatorio")
                 if voz.exists():
                     await alerta._correr("aplay", "-q", "-D", alerta.PLACA, str(voz))

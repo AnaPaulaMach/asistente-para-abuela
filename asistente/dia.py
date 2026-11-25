@@ -14,6 +14,7 @@ import clima
 import frases
 import personas
 import recordatorios
+import tareas
 import telegram_bot
 from luces import luz
 
@@ -44,6 +45,12 @@ class Dia:
         self.radio = radio
         self.ultima_senal = 0.0      # la última vez que tocó el botón o giró la ruedita
         self._hecho = {}             # "saludo"/"chequeo" -> fecha en que se hizo
+        self.saludando = False       # está usando la placa de audio
+        self._saludo = None          # la tarea del saludo (la emergencia la corta)
+
+    def cancelar(self):
+        if self._saludo and not self._saludo.done():
+            self._saludo.cancel()
 
     def senal(self):
         """charla.py la llama con cada toque y con cada giro de la ruedita."""
@@ -66,8 +73,15 @@ class Dia:
                 if self._toca("saludo", _ajuste("BUEN_DIA", "09:00")):
                     while self.ocupado():
                         await asyncio.sleep(5)
-                    await self.saludar()
                     self._hecho["saludo"] = time.strftime("%d/%m")
+                    self.saludando = True
+                    try:
+                        self._saludo = tareas.lanzar(self.saludar(), "buen día")
+                        await self._saludo
+                    except asyncio.CancelledError:
+                        print("☀️  (saludo cortado)", flush=True)
+                    finally:
+                        self.saludando, self._saludo = False, None
                 if self._toca("chequeo", _ajuste("CHEQUEO", "11:00")):
                     self._hecho["chequeo"] = time.strftime("%d/%m")
                     await asyncio.to_thread(self.chequear)

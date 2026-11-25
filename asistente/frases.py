@@ -9,6 +9,7 @@ falta en una emergencia.
     ~/asistente/venv/bin/python ~/asistente/frases.py pregunta     (solo algunas)
 """
 import asyncio
+import contextlib
 import sys
 import wave
 from pathlib import Path
@@ -18,6 +19,8 @@ from pathlib import Path
 # no la pagan.
 
 MODELO = "gemini-3.8-live"
+CONECTAR_MAX = 15   # segundos para conectar con Gemini
+PAUSA_MAX = 20      # segundos máximos sin recibir nada en medio de una frase
 VOZ = "Algenib"
 CARPETA = Path.home() / "asistente" / "frases"
 FRASES = {
@@ -59,10 +62,20 @@ async def voz_en_partes(cliente, texto):
         speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOZ))),
     )
-    async with cliente.aio.live.connect(model=MODELO, config=config) as sesion:
-        await sesion.send_client_content(
-            turns=types.Content(role="user", parts=[types.Part(text=texto)]))
-        async for msg in sesion.receive():
+    # Con límites de tiempo: si Gemini no conecta o se queda callado a mitad de
+    # camino, se corta con TimeoutError en vez de esperar para siempre (y de
+    # dejar la placa de audio tomada).
+    async with contextlib.AsyncExitStack() as pila:
+        sesion = await asyncio.wait_for(
+            pila.enter_async_context(cliente.aio.live.connect(model=MODELO, config=config)), CONECTAR_MAX)
+        await asyncio.wait_for(sesion.send_client_content(
+            turns=types.Content(role="user", parts=[types.Part(text=texto)])), CONECTAR_MAX)
+        mensajes = sesion.receive().__aiter__()
+        while True:
+            try:
+                msg = await asyncio.wait_for(mensajes.__anext__(), PAUSA_MAX)
+            except StopAsyncIteration:
+                break
             sc = msg.server_content
             for parte in (sc.model_turn.parts if sc and sc.model_turn else []):
                 if parte.inline_data:

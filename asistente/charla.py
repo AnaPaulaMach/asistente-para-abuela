@@ -25,6 +25,7 @@ from google.genai import types
 from gpiozero import Button, RotaryEncoder
 
 import alerta
+import tareas
 import clima
 import llamadas as llamar
 import memoria
@@ -343,6 +344,7 @@ class Charla:
         self.automatico = False  # escuchando solo, esperando que conteste
         self.oyo_algo = False    # Gemini transcribió algo de lo que dijo ella
         self.ultima_actividad = time.monotonic()  # cuándo habló alguien por última vez
+        self._candado = asyncio.Lock()            # abrir el micrófono, de a uno
         self.radio = None         # la Radio de main()
         self.radio_pendiente = None  # emisora a poner cuando termine de hablar
         self.tokens = Counter()  # consumo de esta conexión, por tipo
@@ -368,7 +370,7 @@ class Charla:
     def empezar_envio(self, espera=None):
         self.automatico = espera is not None
         self.oyo_algo = False
-        self.envio = asyncio.create_task(self._mandar_mic(espera))
+        self.envio = tareas.lanzar(self._mandar_mic(espera), "micrófono")
 
     async def _mandar_mic(self, espera):
         """Manda el micrófono a Gemini, con dos controles propios además de
@@ -437,10 +439,20 @@ class Charla:
 
     async def callar(self):
         await self.dejar_de_escuchar()
+        await self.callar_parlante()
+
+    async def callar_parlante(self):
         if self.parlante and self.parlante.returncode is None:
             self.parlante.kill()
             await self.parlante.wait()
         self.parlante = None
+
+    async def abrir_microfono(self, espera=None):
+        """Escuchar y mandar a Gemini, como una sola operación con candado: un toque
+        y la escucha automática pueden llegar a la vez, y la placa es una sola."""
+        async with self._candado:
+            await self.escuchar()
+            self.empezar_envio(espera)
 
     async def hablar(self, datos, formato):
         self.ultima_actividad = time.monotonic()
@@ -583,8 +595,10 @@ class Charla:
                     self.ultima_actividad = time.monotonic()
                     print(f"  👵 {sc.input_transcription.text}", flush=True)
                 if sc.interrupted:
+                    # Ella empezó a hablar encima: se calla el parlante, pero el
+                    # micrófono sigue abierto (es justo lo que hay que escuchar).
                     self.ignorar = False
-                    await self.callar()
+                    await self.callar_parlante()
                 for parte in (sc.model_turn.parts if sc.model_turn else []):
                     if parte.inline_data and not self.ignorar:
                         await self.hablar(parte.inline_data.data, parte.inline_data.mime_type)
@@ -604,8 +618,7 @@ class Charla:
                         print("(sonando la radio; un toque la apaga)", flush=True)
                     elif pregunto:
                         # Le preguntó algo: escuchamos solos, sin que toque el botón.
-                        await self.escuchar()
-                        self.empezar_envio(espera=ESPERA_RESPUESTA)
+                        await self.abrir_microfono(espera=ESPERA_RESPUESTA)
                         print(f"(esperando su respuesta {ESPERA_RESPUESTA} s)", flush=True)
                     else:
                         print("(listo; tocá el botón para seguir)", flush=True)
@@ -645,19 +658,25 @@ async def main():
     volumen = Volumen()
     volumen.al_cambiar = lambda nivel: luz("volumen", nivel)
     ruedita = RotaryEncoder(13, 26, max_steps=0)
-    dia = None  # se crea más abajo; girar la ruedita también es "señal de que está bien"
+    # Girar la ruedita también es "señal de que está bien" (dia se crea más abajo).
     ruedita.when_rotated_clockwise = lambda: (volumen.subir(), dia and dia.senal())
     ruedita.when_rotated_counter_clockwise = lambda: (volumen.bajar(), dia and dia.senal())
 
     atender.charla = None  # la charla en curso (la actualiza atender())
     radio = Radio()
 
-    def ocupado_audio():
-        # Mientras escucha, habla o suena la radio no pita: lo apagaría (un solo reloj).
-        c = atender.charla
-        return radio.sonando() or (c is not None and (c.escuchando() or c.parlante is not None))
+    mensajes = recordatorios = dia = None   # se crean más abajo
 
-    volumen.ocupado = ocupado_audio
+    def placa_ocupada():
+        """La placa de audio es una sola: ¿hay algo usándola? Todos esperan a que
+        se libere (los recordatorios, los mensajes, el buen día) con la misma regla."""
+        return (atender.charla is not None or alerta.activa
+                or (mensajes is not None and mensajes.entregando)
+                or (recordatorios is not None and recordatorios.confirmacion is not None)
+                or (dia is not None and dia.saludando))
+
+    # Mientras suena algo no pita: lo apagaría (un solo reloj).
+    volumen.ocupado = lambda: radio.sonando() or placa_ocupada()
 
     print(f"Listo ({MODELO}, voz {VOZ}, volumen {volumen.nivel}/10). "
           "Tocá el botón y hablá; la ruedita cambia el volumen. Ctrl+C para salir.", flush=True)
@@ -680,27 +699,32 @@ async def main():
     # cuando hay una charla o una emergencia en curso.
     # Los mensajes de la familia esperan si hay una charla, una emergencia o un
     # recordatorio; los recordatorios esperan si se está diciendo un mensaje.
-    mensajes = None
-    recordatorios = Recordatorios(cliente, ocupado=lambda: atender.charla is not None or alerta.activa
-                                  or (mensajes is not None and mensajes.entregando))
+    recordatorios = Recordatorios(cliente, ocupado=placa_ocupada)
     recordatorios.radio = radio  # un recordatorio pausa la radio y la vuelve a poner
-    asyncio.create_task(recordatorios.bucle())
+    tareas.lanzar(recordatorios.bucle(), "recordatorios")
     vigilante = Vigilante(telegram_bot.leer_env(telegram_bot.CONFIG / "ajustes.env").get("NOMBRE_ASISTENTE", "El asistente"))
-    asyncio.create_task(vigilante.vigilar())
-    mensajes = mensajeria.Mensajes(
-        cliente, radio=radio, vigilante=vigilante,
-        ocupado=lambda: atender.charla is not None or alerta.activa or recordatorios.confirmacion is not None)
-    asyncio.create_task(mensajes.escuchar())
-    # Buen día y chequeo de la mañana (dia.py): esperan si hay otra cosa sonando.
-    dia = Dia(cliente, radio=radio, ocupado=lambda: atender.charla is not None or alerta.activa
-              or mensajes.entregando or recordatorios.confirmacion is not None)
+    tareas.lanzar(vigilante.vigilar(), "vigilante")
+    mensajes = mensajeria.Mensajes(cliente, radio=radio, vigilante=vigilante, ocupado=placa_ocupada)
+    tareas.lanzar(mensajes.escuchar(), "mensajes")
+    dia = Dia(cliente, radio=radio, ocupado=placa_ocupada)   # buen día y chequeo de la mañana
     atender.dia = dia
-    asyncio.create_task(dia.bucle())
+    tareas.lanzar(dia.bucle(), "día")
+    tareas.lanzar(vigilar_radio(radio), "radio")
 
     try:
         await atender(cliente, toques, volumen, radio, recordatorios, mensajes)
     finally:
         radio.parar()  # mpv corre aparte: si la charla se cierra, que no quede sonando
+
+
+async def vigilar_radio(radio):
+    """Si la radio se cortó sola (se cayó la transmisión o pasaron las 3 horas),
+    que no queden la luz de radio ni el panel diciendo que suena."""
+    while True:
+        await asyncio.sleep(30)
+        if radio.nombre and not radio.sonando():
+            radio.parar()
+            luz("esperando")
 
 
 async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
@@ -710,7 +734,9 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
         atender.dia.senal()  # tocó el botón: está bien
         if mensajes.atender_toque(toque):
             continue  # el toque era para contestar el mensaje que le llegó
-        while mensajes.entregando:  # si está diciendo un mensaje, que termine (son segundos)
+        if toque == "larga":
+            atender.dia.cancelar()     # la emergencia corta el saludo (y atender_toque, el mensaje)
+        while mensajes.entregando or atender.dia.saludando:  # que termine (son segundos)
             await asyncio.sleep(0.2)
         if radio.sonando():
             radio.parar()  # cualquier toque apaga la radio (y sigue: hablar o emergencia)
@@ -735,9 +761,9 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
                     timeout=CONEXION_MAX)
                 charla.sesion = sesion
                 charla.empezar_envio()
-                receptor = asyncio.create_task(charla.recibir())
+                receptor = tareas.lanzar(charla.recibir(), "receptor")
                 while not receptor.done():
-                    espera = asyncio.create_task(toques.get())
+                    espera = asyncio.ensure_future(toques.get())
                     hecho, _ = await asyncio.wait({espera, receptor}, timeout=10,
                                                   return_when=asyncio.FIRST_COMPLETED)
                     if espera not in hecho:
@@ -773,8 +799,7 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
                         continue
                     # Toque mientras habla (o ya terminó): interrumpe y vuelve a escuchar.
                     charla.ignorar = charla.parlante is not None
-                    await charla.escuchar()
-                    charla.empezar_envio()
+                    await charla.abrir_microfono()
                 if receptor.done() and not receptor.cancelled() and receptor.exception():
                     print(f"(se cortó la conexión: {receptor.exception()})", flush=True)
             luz("radio" if radio.sonando() else "esperando")

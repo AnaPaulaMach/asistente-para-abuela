@@ -35,7 +35,14 @@ activa = False       # los recordatorios esperan mientras haya una emergencia
 async def _correr(*comando):
     p = await asyncio.create_subprocess_exec(
         *comando, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
-    await p.wait()
+    try:
+        await p.wait()
+    finally:
+        # Si cancelan la tarea (por ejemplo, una emergencia mientras suena un
+        # mensaje), el proceso no puede quedar vivo con la placa de audio tomada.
+        if p.returncode is None:
+            p.kill()
+            await p.wait()
 
 
 def normalizar(wav, ganancia_max=20):
