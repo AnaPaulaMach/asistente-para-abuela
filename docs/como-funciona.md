@@ -15,7 +15,7 @@ La placa de sonido usa un solo reloj para grabar y reproducir: el programa nunca
 
 1. Raspberry Pi OS Lite de 64 bits, con SSH y WiFi (de 2,4 GHz: la Zero 2 W no ve las de 5 GHz).
 2. Overlay de la placa de sonido: `dtparam=i2s=on` y `dtoverlay=respeaker-2mic-v2_0` en `/boot/firmware/config.txt`.
-3. Paquetes: `sudo apt install python3-gpiozero python3-lgpio opus-tools rsync mpv`.
+3. Paquetes: `sudo apt install python3-libgpiod python3-numpy opus-tools rsync mpv`.
 4. Copiá `asistente/` y `systemd/` a `~/asistente` en la Pi (o usá `desplegar.sh` desde tu compu).
 5. Dos entornos de Python:
    ```bash
@@ -35,6 +35,8 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | Archivo | Qué hace |
 |---|---|
 | `charla.py` | El programa principal: botón, ruedita, conexión con Gemini Live, escucha automática después de una pregunta |
+| `entradas.py` | El botón y la ruedita con libgpiod: el kernel avisa cuando un pin cambia (0 % de CPU en reposo) |
+| `tareas.py` | Tareas de fondo que no se pierden y anotan sus errores |
 | `prompt/base.md` | Las instrucciones de Gemini (públicas). El perfil y la familia van aparte, en archivos privados |
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
@@ -54,6 +56,8 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `agregar-wifi.sh` | Suma otra red WiFi sin borrar las que ya conoce |
 
 ## Decisiones que vale la pena contar
+
+- **Pensado para una Pi Zero encendida todo el día:** en reposo la charla usa 0 % de CPU (libgpiod en vez de un hilo que revisa los pines), el audio se procesa con numpy, las luces no redibujan cuando nada cambia, y nada se queda esperando para siempre (límites de tiempo con Gemini; los procesos de audio mueren si se cancela su tarea).
 
 - **"Tocar y hablar", no "mantener apretado para hablar":** mantener apretado es la emergencia.
 - **La emergencia avisa si nadie la cancela:** si se cayó y no puede contestar, el aviso tiene que salir igual.

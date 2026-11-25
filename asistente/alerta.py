@@ -11,12 +11,13 @@
 Las frases están grabadas en ~/asistente/frases/ (frases.py), así funcionan aunque
 Gemini no responda.
 """
-import array
 import asyncio
 import tempfile
 import time
 import wave
 from pathlib import Path
+
+import numpy as np
 
 import telegram_bot
 from luces import luz
@@ -50,25 +51,25 @@ def normalizar(wav, ganancia_max=20):
 
     Resta la continua (el promedio) y multiplica para que el pico quede al 90 %
     del máximo, sin pasar de `ganancia_max` veces (si no, el silencio con
-    ruido de fondo se volvería un "shhh" fuerte).
+    ruido de fondo se volvería un "shhh" fuerte). Con numpy: un minuto de audio
+    se procesa en milisegundos (muestra por muestra en Python tardaba segundos).
     """
     with wave.open(str(wav)) as w:
         parametros = w.getparams()
         # Los primeros 0,2 s traen el salto del conversor al arrancar: afuera.
         w.readframes(w.getframerate() // 5)
-        muestras = array.array("h", w.readframes(w.getnframes()))
-    if not muestras:
+        x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32)
+    if x.size == 0:
         return
-    media = sum(muestras) // len(muestras)
-    # Un golpe aislado no debe frenar la ganancia: tomamos como "pico" el valor
-    # que supera al 99,9 % de las muestras, en lugar del máximo absoluto.
-    pico = sorted(abs(x - media) for x in muestras)[int(len(muestras) * 0.999)] or 1
+    x -= x.mean()
+    # Un golpe aislado no debe frenar la ganancia: el "pico" es el valor que
+    # supera al 99,9 % de las muestras, en lugar del máximo absoluto.
+    pico = float(np.percentile(np.abs(x), 99.9)) or 1.0
     ganancia = min(ganancia_max, 0.9 * 32767 / pico)
-    for i, x in enumerate(muestras):
-        muestras[i] = max(-32768, min(32767, int((x - media) * ganancia)))
+    y = np.clip(x * ganancia, -32768, 32767).astype(np.int16)
     with wave.open(str(wav), "wb") as w:
         w.setparams(parametros)
-        w.writeframes(muestras.tobytes())
+        w.writeframes(y.tobytes())
     print(f"   (volumen x{ganancia:.1f})", flush=True)
 
 
@@ -90,9 +91,7 @@ async def grabar_hasta_silencio(wav, esperar=10, silencio=3, maximo=60, umbral=1
         await mic.stdout.readexactly(tasa * 2 * 15 // 100)   # el salto del conversor al arrancar
         for n in range(maximo * 10):
             datos = await mic.stdout.readexactly(bloque)
-            muestras = array.array("h", datos)
-            media = sum(muestras) / len(muestras)
-            fuerte = (sum((x - media) ** 2 for x in muestras) / len(muestras)) ** 0.5 > umbral
+            fuerte = float(np.frombuffer(datos, dtype=np.int16).astype(np.float32).std()) > umbral
             audio += datos
             if not hablo:
                 ultimos = (ultimos + [fuerte])[-5:]

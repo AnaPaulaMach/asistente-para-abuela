@@ -11,7 +11,6 @@
 
 Se corre con el venv: ~/asistente/venv/bin/python ~/asistente/charla.py   (Ctrl+C para salir)
 """
-import array
 import asyncio
 import contextlib
 import re
@@ -20,16 +19,16 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 from google import genai
 from google.genai import types
-from gpiozero import Button, RotaryEncoder
 
 import alerta
 import tareas
 import clima
-import llamadas as llamar
+import llamadas as llamar  # "llamadas" ya es la lista de pedidos de Gemini
 import memoria
-import mensajes as mensajeria  # "llamadas" ya es la lista de pedidos de Gemini
+import mensajes as mensajeria
 import noticias
 import personas
 import radio as radios
@@ -40,6 +39,7 @@ from radio import Radio
 import recordatorios as avisos
 from recordatorios import Recordatorios
 from dia import Dia
+from entradas import Entradas
 from vigilante import Vigilante
 from volumen import Volumen
 
@@ -272,12 +272,6 @@ def clave_gemini():
     raise SystemExit("Falta GEMINI_API_KEY en ~/.config/asistente/secretos.env")
 
 
-def volumen_rms(datos):
-    """Volumen promedio de un bloque (raíz del promedio de los cuadrados)."""
-    muestras = array.array("h", datos)
-    return (sum(x * x for x in muestras) / len(muestras)) ** 0.5 if muestras else 0
-
-
 def agregar_recordatorio(args):
     """Lo que pidió Gemini, con la fecha resuelta: sin fecha y sin "todos los días"
     es hoy, o mañana si esa hora ya pasó."""
@@ -313,23 +307,30 @@ def agregar_recordatorio(args):
 
 
 class PasaAltos:
-    """Filtro de un polo que saca la "continua" (el corrimiento de la media)
-    sin tocar la voz: y[n] = x[n] - x[n-1] + 0,995 * y[n-1]."""
+    """Saca la "continua" (el corrimiento de la media que traen estos micrófonos),
+    amplifica y mide el volumen, todo de un bloque y con numpy (no muestra por
+    muestra en Python: en la Pi Zero eso era el 7-10 % de un núcleo).
+
+    La continua cambia muy despacio: alcanza con restar un promedio que se
+    actualiza bloque a bloque. Después de cada llamada, .rms tiene el volumen
+    del bloque ya amplificado (raíz del promedio de los cuadrados).
+    """
 
     def __init__(self):
-        self.x_ant = None
-        self.y_ant = 0.0
+        self.media = None
+        self.rms = 0.0
 
     def __call__(self, datos):
-        muestras = array.array("h", datos)
-        if self.x_ant is None and muestras:
-            self.x_ant = muestras[0]  # arranca desde el primer valor: sin salto inicial
-        for i, x in enumerate(muestras):
-            y = x - self.x_ant + 0.995 * self.y_ant
-            self.x_ant, self.y_ant = x, y
-            # Además de filtrar, amplificamos: así Gemini oye también la voz baja.
-            muestras[i] = max(-32768, min(32767, int(y * GANANCIA_MIC)))
-        return muestras.tobytes()
+        x = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
+        if x.size == 0:
+            return datos
+        promedio = float(x.mean())
+        # Arranca desde el primer bloque (sin salto) y después sigue de a poco.
+        self.media = promedio if self.media is None else 0.9 * self.media + 0.1 * promedio
+        # Además de filtrar, amplificamos: así Gemini oye también la voz baja.
+        y = np.clip((x - self.media) * GANANCIA_MIC, -32768, 32767)
+        self.rms = float(np.sqrt(np.mean(y * y)))
+        return y.astype(np.int16).tobytes()
 
 
 class Charla:
@@ -392,7 +393,7 @@ class Charla:
                 datos = filtro(await mic.stdout.readexactly(BLOQUE))
                 await self.sesion.send_realtime_input(
                     audio=types.Blob(data=datos, mime_type=f"audio/pcm;rate={TASA_MIC}"))
-                fuerte = volumen_rms(datos) > UMBRAL_VOZ
+                fuerte = filtro.rms > UMBRAL_VOZ
                 if hablo:
                     callado = 0 if fuerte else callado + 1
                     if fuerte:
@@ -633,34 +634,18 @@ async def main():
     # cancelación, así se ejecutan los "finally" (cerrar audio, apagar luces).
     loop.add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
 
-    # gpiozero llama a estas funciones desde otro hilo; call_soon_threadsafe
-    # pasa el aviso al hilo de asyncio de forma segura.
-    boton = Button(17, pull_up=True, bounce_time=0.05, hold_time=2)
-    larga = False
-
-    def mantenido():
-        nonlocal larga
-        larga = True
-        loop.call_soon_threadsafe(toques.put_nowait, "larga")
-
-    def soltado():
-        nonlocal larga
-        if not larga:
-            loop.call_soon_threadsafe(toques.put_nowait, "corto")
-        larga = False
-
-    boton.when_held = mantenido
-    boton.when_released = soltado
-
-    # La ruedita: gpiozero mira el orden en que cambian los dos cables (A y B)
-    # y nos dice para qué lado giró. Cada "clic" es un paso. El volumen se
-    # cambia directo desde el hilo de gpiozero; Volumen tiene su propio candado.
+    # El botón y la ruedita (entradas.py): el sistema avisa cuando un pin cambia,
+    # directo en este bucle de asyncio. Cada clic de la ruedita es un paso de
+    # volumen; amixer corre en un hilo aparte para no frenar el audio.
     volumen = Volumen()
     volumen.al_cambiar = lambda nivel: luz("volumen", nivel)
-    ruedita = RotaryEncoder(13, 26, max_steps=0)
-    # Girar la ruedita también es "señal de que está bien" (dia se crea más abajo).
-    ruedita.when_rotated_clockwise = lambda: (volumen.subir(), dia and dia.senal())
-    ruedita.when_rotated_counter_clockwise = lambda: (volumen.bajar(), dia and dia.senal())
+
+    def girar(paso):
+        loop.run_in_executor(None, volumen.subir if paso > 0 else volumen.bajar)
+        if getattr(atender, "dia", None):
+            atender.dia.senal()   # girar la ruedita también es "señal de que está bien"
+
+    entradas = Entradas(loop, al_tocar=toques.put_nowait, al_girar=girar)
 
     atender.charla = None  # la charla en curso (la actualiza atender())
     radio = Radio()
@@ -715,6 +700,7 @@ async def main():
         await atender(cliente, toques, volumen, radio, recordatorios, mensajes)
     finally:
         radio.parar()  # mpv corre aparte: si la charla se cierra, que no quede sonando
+        entradas.cerrar()
 
 
 async def vigilar_radio(radio):

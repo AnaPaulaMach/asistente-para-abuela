@@ -67,7 +67,9 @@ class Radio:
         # "timeout" la corta sola a las HORAS_MAX horas, por si queda prendida.
         self.proceso = subprocess.Popen(
             ["timeout", f"{HORAS_MAX}h", "mpv", "--no-video", "--no-terminal",
-             f"--audio-device={SALIDA}", "--cache=yes", r["url"]],
+             f"--audio-device={SALIDA}", "--cache=yes",
+             # Buffer chico: por defecto mpv guarda hasta ~50 MB de lo ya escuchado.
+             "--demuxer-max-bytes=2MiB", "--demuxer-max-back-bytes=0", r["url"]],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         self.nombre = r["nombre"]
         SONANDO.write_text(self.nombre)

@@ -19,6 +19,7 @@ import time
 from rpi_ws281x import Color, PixelStrip
 
 CANTIDAD = 16
+QUIETOS = {"escuchando", "volumen", "apagado"}   # estados sin animación
 PUERTO = 47474
 # Brillo global (0-255). Los 16 LEDs al máximo piden casi 1 A y pueden hacer
 # caer la tensión de la Pi; con 40 se ven bien y consumen poco.
@@ -128,6 +129,7 @@ def main():
 
     estado, extra = "esperando", None
     temporal = None  # (estado, extra, hasta): volumen y emergencia duran un rato
+    anterior = None  # el último cuadro mandado: si no cambió, no se manda de nuevo
     print("Luces listas. Ctrl+C para salir.", flush=True)
     try:
         while True:
@@ -146,9 +148,16 @@ def main():
             if temporal and ahora > temporal[2]:
                 temporal = None
             actual, dato = (temporal[0], temporal[1]) if temporal else (estado, extra)
-            for i, (r, g, b) in enumerate(dibujar(actual, dato, ahora)):
-                tira.setPixelColor(i, Color(r, g, b))
-            tira.show()
+            cuadro = dibujar(actual, dato, ahora)
+            if cuadro != anterior:   # en los estados quietos no hay nada que mandar
+                for i, (r, g, b) in enumerate(cuadro):
+                    tira.setPixelColor(i, Color(r, g, b))
+                tira.show()
+                anterior = cuadro
+            # Estados quietos: se revisa 4 veces por segundo en vez de 30 (un
+            # mensaje nuevo igual se atiende enseguida: recv lo despierta).
+            quieto = actual in QUIETOS or (actual == "esperando" and es_de_noche())
+            entrada.settimeout(0.25 if quieto else 1 / 30)
     except KeyboardInterrupt:
         pass
     finally:

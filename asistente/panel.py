@@ -74,7 +74,8 @@ def proximos_cumples(cuantos=4):
 
 def ultimas_frases(cuantas=8):
     """La charla de hoy, desde el registro: junta los pedacitos de cada turno."""
-    texto = correr("journalctl", "-u", "asistente-charla", "--since", "today", "-o", "cat", "--no-pager")
+    # Solo las últimas líneas del día (no todo el registro): alcanza para las últimas frases.
+    texto = correr("journalctl", "-u", "asistente-charla", "--since", "today", "-n", "400", "-o", "cat", "--no-pager")
     turnos = []
     for linea in texto.splitlines():
         quien = "ella" if linea.startswith("  👵") else "asistente" if linea.startswith("  🤖") else None
@@ -91,7 +92,10 @@ def ultimas_frases(cuantas=8):
 def estado():
     wifi = next((l.split(":", 1)[1] for l in correr("nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi").splitlines()
                  if l.startswith("yes:")), "")
-    temp = re.search(r"([0-9.]+)", correr("vcgencmd", "measure_temp"))
+    try:  # el archivo del sistema: sin lanzar un programa
+        temp = round(int(Path("/sys/class/thermal/thermal_zone0/temp").read_text()) / 1000, 1)
+    except (OSError, ValueError):
+        temp = None
     memoria = CONFIG / "memoria.md"
     try:
         volumen = int((CONFIG / "volumen").read_text())
@@ -99,9 +103,10 @@ def estado():
         volumen = None
     return {
         "nombre": leer_env(CONFIG / "ajustes.env").get("NOMBRE_ASISTENTE", "Asistente"),
-        "servicios": {s: correr("systemctl", "is-active", f"asistente-{s}") for s in ("charla", "luces")},
+        "servicios": dict(zip(("charla", "luces"),
+                              correr("systemctl", "is-active", "asistente-charla", "asistente-luces").split())),
         "encendida_horas": round(float(Path("/proc/uptime").read_text().split()[0]) / 3600, 1),
-        "temperatura": float(temp.group(1)) if temp else None,
+        "temperatura": temp,
         "wifi": wifi,
         "volumen": volumen,
         "recordatorios": [{"fecha": r["fecha"] or "", "hora": r["hora"], "texto": r["texto"]}
