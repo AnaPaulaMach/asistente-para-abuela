@@ -64,7 +64,10 @@ flowchart LR
 
 - **Telegram** me avisa en el celular: emergencias, recordatorios que no confirmó, y más adelante, audios de ida y vuelta con la familia.
 - **Desde la compu** cambio recordatorios, ajusto cómo habla o actualizo el código, y lo copio a la Pi con un comando.
-- *Pronto: captura del panel de control en el escritorio.*
+- **En el escritorio** tengo un widget que me muestra cómo está Beto sin abrir nada: si la charla y las luces andan, el volumen, los recordatorios, cuánto gastó hoy y los próximos cumpleaños. Desde ahí también cambio el volumen, agrego o borro recordatorios y apago la radio.
+
+<p align="center"><img src="docs/img/widget-escritorio.png" alt="Widget de escritorio de Beto: estado de la charla y las luces, volumen, recordatorios, gasto del día y próximos cumpleaños" width="480"></p>
+<p align="center"><sub>El widget en el escritorio KDE (los datos personales están tapados).</sub></p>
 
 **La privacidad, en serio:** las claves y los datos de la familia viven solo en la Pi, con permisos que solo puede leer su usuario. A la Pi se entra únicamente con una llave. Lo que se habla queda en el registro del aparato una semana y después se borra solo. Nada de eso está en este repositorio.
 
