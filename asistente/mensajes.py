@@ -82,6 +82,7 @@ class Mensajes:
         self.esperando_toque = False  # preguntó "¿querés contestarle?" y espera un toque
         self._toque = None
         self._cancelado = False
+        self._toque_antes = False     # tocó mientras le leía el mensaje: quiere contestar
         self.cola = asyncio.Queue()
         self._desconocidos = {}       # chat -> cuándo se avisó (un aviso por hora)
 
@@ -158,13 +159,15 @@ class Mensajes:
             while self.ocupado():      # espera que termine la charla, la emergencia o un recordatorio
                 await asyncio.sleep(2)
             self.entregando = True
+            self._cancelado, self._toque_antes = False, False
             pausada = self.radio.parar() if self.radio and self.radio.sonando() else None
             luz("mensaje")
             try:
                 await self._entregar(m)
                 await asyncio.to_thread(telegram_bot.mandar_texto, m["chat"],
                                         f"✓ Se lo dije a {_ella()} ({time.strftime('%H:%M')}).")
-                await self._ofrecer_respuesta(m)
+                if not self._cancelado:
+                    await self._ofrecer_respuesta(m)
             except Exception as e:
                 print(f"(no pude decir el mensaje de {m['de']}: {e})", flush=True)
                 try:
@@ -180,20 +183,39 @@ class Mensajes:
                     luz("esperando")
 
     def atender_toque(self, toque):
-        """charla.py lo llama con cada toque. True si el toque era para contestar."""
-        if not self.esperando_toque:
+        """charla.py lo llama con cada toque. Mientras se está diciendo un mensaje,
+        un toque corto es "quiero contestar" (aunque llegue antes de la pregunta)
+        y se queda acá: devuelve True. Mantenerlo apretado cancela la respuesta y
+        sigue a la emergencia: devuelve False."""
+        if not self.entregando:
             return False
-        self._cancelado = toque == "larga"   # mantenerlo apretado es la emergencia
-        self._toque.set()
-        return not self._cancelado
+        if toque == "larga":
+            self._cancelado = True
+            if self._toque:
+                self._toque.set()
+            return False
+        if self.esperando_toque and self._toque:
+            self._toque.set()
+        else:
+            self._toque_antes = True
+        return True
 
     async def _ofrecer_respuesta(self, m):
         """'¿Querés contestarle?': si toca el botón, la graba hasta que se calla y
         se la manda como nota de voz. Todo con frases grabadas y en la Pi: sin tokens."""
-        await alerta.decir("pregunta_responder")
-        self._toque, self._cancelado = asyncio.Event(), False
+        if self._cancelado:
+            return  # la mantuvo apretada: es la emergencia, no una respuesta
+        # La espera del toque empieza ANTES de la pregunta: si toca mientras Beto
+        # habla ("tocá el botón..."), también cuenta.
+        self._toque = asyncio.Event()
+        if self._toque_antes or self._cancelado:
+            self._toque.set()
         self.esperando_toque = True
         luz("mensaje")
+        if not self._toque.is_set():
+            await alerta.decir("pregunta_responder")
+        else:
+            await alerta.decir("te_escucho")  # ya había tocado: que sepa cuándo hablar
         print("  (¿contesta? esperando un toque)", flush=True)
         try:
             await asyncio.wait_for(self._toque.wait(), timeout=ESPERA_RESPUESTA)
@@ -202,6 +224,7 @@ class Mensajes:
             return
         finally:
             self.esperando_toque = False
+            self._toque, self._toque_antes = None, False
         if self._cancelado:
             return
         luz("escuchando")
