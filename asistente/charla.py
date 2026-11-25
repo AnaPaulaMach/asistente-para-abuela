@@ -55,6 +55,7 @@ BLOQUE = TASA_MIC * 2 // 10        # 100 ms de audio (2 bytes por muestra)
 DESCARTE = TASA_MIC * 2 * 15 // 100  # los primeros 150 ms traen un salto del conversor
 ESCUCHA_MAX = 90                   # tope por vez: habla mucho, y 90 s cuestan menos de 1 centavo
 ESPERA_RESPUESTA = 10              # después de una pregunta, cuánto espera que empiece a hablar
+ESPERA_SIN_PREGUNTA = 5            # después de cualquier otra respuesta, por si sigue hablando
 GANANCIA_MIC = 3                   # los mics graban bajito: x3 (~+10 dB) antes de mandar
 UMBRAL_VOZ = 350                   # RMS ya amplificado: silencio ~240, voz baja ~1000 o más
 INACTIVIDAD = 120                  # segundos sin que nadie hable antes de cerrar la conexión
@@ -617,10 +618,13 @@ class Charla:
                         self.radio.tocar(self.radio_pendiente)
                         self.radio_pendiente = None
                         print("(sonando la radio; un toque la apaga)", flush=True)
-                    elif pregunto:
-                        # Le preguntó algo: escuchamos solos, sin que toque el botón.
-                        await self.abrir_microfono(espera=ESPERA_RESPUESTA)
-                        print(f"(esperando su respuesta {ESPERA_RESPUESTA} s)", flush=True)
+                    elif not descartada:
+                        # Después de cada respuesta queda escuchando solo, sin que toque
+                        # el botón: más rato si le preguntó algo, un poco siempre, por
+                        # si ella sigue hablando.
+                        espera = ESPERA_RESPUESTA if pregunto else ESPERA_SIN_PREGUNTA
+                        await self.abrir_microfono(espera=espera)
+                        print(f"(escuchando por si habla, {espera} s)", flush=True)
                     else:
                         print("(listo; tocá el botón para seguir)", flush=True)
 
