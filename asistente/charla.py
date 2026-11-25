@@ -115,6 +115,11 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
         },
     },
 ), types.FunctionDeclaration(
+    name="hora_actual",
+    description=("Devuelve la fecha y la hora exactas de donde vive ella (Argentina). Usala SIEMPRE "
+                 "que pregunte la hora, el día o la fecha: no la calcules ni la supongas."),
+    parameters_json_schema={"type": "object", "properties": {}},
+), types.FunctionDeclaration(
     name="mandar_mensaje",
     description=("Le manda por Telegram un mensaje de ella a alguien de la familia. Usala cuando "
                  "diga 'decile a ... que ...' o quiera contestar un mensaje que le llegó."),
@@ -418,6 +423,11 @@ class Charla:
                         llamar.pedir, args.get("persona") or "", args.get("motivo") or "")
                 except Exception as e:  # sin internet: que no prometa que avisó
                     resultado = {"error": f"no pude avisar ({e})"}
+            elif llamada.name == "hora_actual":
+                ahora = time.localtime()  # el reloj de la Pi: hora de Argentina, sincronizada
+                resultado = {"hora": f"{ahora.tm_hour}:{ahora.tm_min:02d}",
+                             "dia": DIAS[ahora.tm_wday],
+                             "fecha": f"{ahora.tm_mday} de {MESES[ahora.tm_mon - 1]} de {ahora.tm_year}"}
             elif llamada.name == "mandar_mensaje":
                 try:
                     resultado = await asyncio.to_thread(
