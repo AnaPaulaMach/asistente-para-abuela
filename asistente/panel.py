@@ -104,7 +104,8 @@ def estado():
         "temperatura": float(temp.group(1)) if temp else None,
         "wifi": wifi,
         "volumen": volumen,
-        "recordatorios": [{"hora": h, "texto": t} for h, t in recordatorios.leer()],
+        "recordatorios": [{"fecha": r["fecha"] or "", "hora": r["hora"], "texto": r["texto"]}
+                          for r in recordatorios.todos()],
         "gasto": gasto(),
         "cumples": proximos_cumples(),
         "frases": ultimas_frases(),
@@ -134,39 +135,18 @@ def volumen(nivel):
     return {"volumen": nivel}
 
 
-def _linea_valida(texto):
-    hora, _, resto = texto.strip().partition(" ")
-    try:
-        t = time.strptime(hora, "%H:%M")
-    except ValueError:
-        raise ValueError(f"la hora «{hora}» no es válida: escribila como 09:30") from None
-    if not resto.strip():
-        raise ValueError("falta el texto del recordatorio")
-    return f"{t.tm_hour:02d}:{t.tm_min:02d} {resto.strip()}"
-
-
 def recordatorio_agregar(texto):
-    linea = _linea_valida(texto)
-    archivo = recordatorios.ARCHIVO
-    previo = archivo.read_text() if archivo.exists() else ""
-    archivo.write_text(previo + ("" if previo.endswith("\n") or not previo else "\n") + linea + "\n")
-    return {"agregado": linea}
+    """'09:00 texto' (todos los días) o '27/11 17:00 texto' (una sola vez)."""
+    r = recordatorios._parsear(texto)
+    if r is None:
+        raise ValueError("escribilo como «09:30 texto» o «27/11 09:30 texto»")
+    return {"agregado": recordatorios.agregar(r["hora"], r["texto"], r["fecha"])}
 
 
 def recordatorio_borrar(texto):
-    buscado = _linea_valida(texto)
-    archivo = recordatorios.ARCHIVO
-    lineas = archivo.read_text().splitlines()
-    for i, linea in enumerate(lineas):
-        if linea.strip() and not linea.startswith("#"):
-            try:
-                if _linea_valida(linea) == buscado:
-                    del lineas[i]
-                    archivo.write_text("\n".join(lineas) + "\n")
-                    return {"borrado": buscado}
-            except ValueError:
-                continue
-    raise ValueError("no encontré ese recordatorio")
+    if not recordatorios.borrar(exacto=texto.strip()):
+        raise ValueError("no encontré ese recordatorio")
+    return {"borrado": texto.strip()}
 
 
 def probar_luces():

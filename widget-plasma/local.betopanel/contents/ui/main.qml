@@ -368,7 +368,7 @@ PlasmoidItem {
                     required property var modelData
                     Layout.fillWidth: true
                     PlasmaComponents3.Label {
-                        text: modelData.hora
+                        text: (modelData.fecha ? modelData.fecha + " " : "") + modelData.hora
                         font.family: "monospace"
                         color: root.rosa
                     }
@@ -385,7 +385,8 @@ PlasmoidItem {
                         enabled: root.busy === ""
                         QQC2.ToolTip.text: "Borrar el de las " + modelData.hora
                         QQC2.ToolTip.visible: hovered
-                        onClicked: root.orden("recordatorio-borrar", modelData.hora + " " + modelData.texto,
+                        onClicked: root.orden("recordatorio-borrar",
+                                              (modelData.fecha ? modelData.fecha + " " : "") + modelData.hora + " " + modelData.texto,
                                               "Borrando…", "Borrado el de las " + modelData.hora)
                     }
                 }
@@ -395,7 +396,7 @@ PlasmoidItem {
                 PlasmaComponents3.TextField {
                     id: nuevo
                     Layout.fillWidth: true
-                    placeholderText: "09:00 Acordate de tomar la pastilla"
+                    placeholderText: "09:00 Tomar la pastilla  (o 27/11 17:00 … para una sola vez)"
                     onAccepted: agregar.clicked()
                 }
                 PlasmaComponents3.Button {

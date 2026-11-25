@@ -1,10 +1,14 @@
-"""Etapa f: recordatorios diarios.
+"""Recordatorios: diarios o de una sola vez.
 
 Se escriben en ~/.config/asistente/recordatorios.txt, uno por línea, así:
 
-    09:00 Acordate de tomar la pastilla de la presión.
-    13:00 Es hora de almorzar.
+    09:00 Acordate de tomar la pastilla de la presión.      (todos los días)
+    27/11 17:00 Hoy viene el médico a las cinco y media.    (solo ese día)
     # las líneas con numeral se ignoran
+
+Ella también los agrega y los borra hablando (herramientas agregar_recordatorio
+y borrar_recordatorio de charla.py). Los de una sola vez se borran solos
+después de sonar (o si quedaron viejos porque el aparato estaba apagado).
 
 A la hora indicada el asistente se pone lila y dice el texto con la voz del asistente.
 Ella confirma con un toque del botón. Si no confirma, lo repite cada 3
@@ -16,6 +20,7 @@ La voz de cada recordatorio se graba con Gemini apenas aparece en el archivo
 import asyncio
 import hashlib
 import time
+import unicodedata
 from pathlib import Path
 
 import alerta
@@ -29,24 +34,100 @@ REPETIR_CADA = 180   # segundos entre repeticiones si no confirma
 VECES = 3            # repeticiones antes de avisar a la familia
 
 
+def _parsear(linea):
+    """Una línea del archivo como {fecha, hora, texto, linea}, o None si no sirve."""
+    linea = linea.strip()
+    if not linea or linea.startswith("#"):
+        return None
+    partes = linea.split(" ", 2)
+    fecha = None
+    if "/" in partes[0]:
+        dia, _, mes = partes[0].partition("/")
+        if not (dia.isdigit() and mes.isdigit()) or len(partes) < 3:
+            print(f"(recordatorio ignorado, la fecha tiene que ser DD/MM: {linea})", flush=True)
+            return None
+        fecha = f"{int(dia):02d}/{int(mes):02d}"
+        partes = partes[1:]
+    else:
+        partes = linea.split(" ", 1)
+    try:
+        t = time.strptime(partes[0], "%H:%M")
+    except ValueError:
+        print(f"(recordatorio ignorado, la hora tiene que ser HH:MM: {linea})", flush=True)
+        return None
+    texto = partes[1].strip() if len(partes) > 1 else ""
+    if not texto:
+        return None
+    # "9:5" se entiende como 09:05, igual que la hora del reloj.
+    return {"fecha": fecha, "hora": f"{t.tm_hour:02d}:{t.tm_min:02d}", "texto": texto, "linea": linea}
+
+
+def todos():
+    if not ARCHIVO.exists():
+        return []
+    return [r for r in map(_parsear, ARCHIVO.read_text().splitlines()) if r]
+
+
 def leer():
-    """Devuelve [(hora "HH:MM", texto)]; ignora líneas mal escritas."""
-    lista = []
-    if ARCHIVO.exists():
-        for linea in ARCHIVO.read_text().splitlines():
-            linea = linea.strip()
-            if not linea or linea.startswith("#"):
+    """Los de hoy, como [(hora "HH:MM", texto)]: los diarios y los de la fecha de hoy."""
+    hoy = time.strftime("%d/%m")
+    return [(r["hora"], r["texto"]) for r in todos() if r["fecha"] in (None, hoy)]
+
+
+def _simple(texto):
+    texto = unicodedata.normalize("NFD", texto.lower())
+    return "".join(c for c in texto if unicodedata.category(c) != "Mn")
+
+
+def _escribir(lineas):
+    ARCHIVO.write_text("".join(l + "\n" for l in lineas))
+
+
+def agregar(hora, texto, fecha=None):
+    """Agrega uno. Sin fecha: todos los días. Devuelve lo que quedó anotado."""
+    r = _parsear(f"{fecha} {hora} {texto}" if fecha else f"{hora} {texto}")
+    if r is None:
+        raise ValueError("la hora tiene que ser HH:MM (y la fecha DD/MM)")
+    linea = (f"{r['fecha']} " if r["fecha"] else "") + f"{r['hora']} {r['texto']}"
+    previo = ARCHIVO.read_text() if ARCHIVO.exists() else ""
+    ARCHIVO.write_text(previo + ("" if previo.endswith("\n") or not previo else "\n") + linea + "\n")
+    return {"fecha": r["fecha"], "hora": r["hora"], "texto": r["texto"]}
+
+
+def borrar(sobre="", exacto=""):
+    """Borra por la línea exacta, o los que tienen todas las palabras de `sobre`."""
+    lineas = ARCHIVO.read_text().splitlines() if ARCHIVO.exists() else []
+    palabras = [p for p in _simple(sobre).split() if len(p) > 2]
+    quedan, borrados = [], []
+    for linea in lineas:
+        r = _parsear(linea)
+        if r and ((exacto and _parsear(exacto) and r["linea"] == _parsear(exacto)["linea"])
+                  or (palabras and all(p in _simple(r["texto"]) for p in palabras))):
+            borrados.append(r["linea"])
+        else:
+            quedan.append(linea)
+    if borrados:
+        _escribir(quedan)
+    return borrados
+
+
+def _limpiar_viejos():
+    """Saca los de una sola vez que ya pasaron (si el aparato estuvo apagado)."""
+    hoy = time.localtime()
+    lineas = ARCHIVO.read_text().splitlines() if ARCHIVO.exists() else []
+    quedan = []
+    for linea in lineas:
+        r = _parsear(linea)
+        if r and r["fecha"]:
+            dia, mes = (int(x) for x in r["fecha"].split("/"))
+            # Más de un mes "en el pasado" es del año que viene (diciembre → enero).
+            atras = (hoy.tm_mon - mes) % 12
+            if atras == 0 and (dia, r["hora"]) < (hoy.tm_mday, time.strftime("%H:%M")) or 0 < atras < 6:
+                print(f"(recordatorio vencido, lo saco: {linea})", flush=True)
                 continue
-            hora, _, texto = linea.partition(" ")
-            try:
-                t = time.strptime(hora, "%H:%M")
-            except ValueError:
-                print(f"(recordatorio ignorado, la hora tiene que ser HH:MM: {linea})", flush=True)
-                continue
-            if texto.strip():
-                # "9:5" se entiende como 09:05, igual que la hora del reloj.
-                lista.append((f"{t.tm_hour:02d}:{t.tm_min:02d}", texto.strip()))
-    return lista
+        quedan.append(linea)
+    if len(quedan) != len(lineas):
+        _escribir(quedan)
 
 
 def voz_de(texto):
@@ -76,7 +157,7 @@ class Recordatorios:
     async def preparar(self):
         """Graba la voz de los recordatorios nuevos o cambiados."""
         VOCES.mkdir(parents=True, exist_ok=True)
-        for _, texto in leer():
+        for texto in [r["texto"] for r in todos()]:
             destino = voz_de(texto)
             if not destino.exists():
                 try:
@@ -98,20 +179,25 @@ class Recordatorios:
                 minuto = time.strftime("%H:%M")
                 if minuto != ultimo_minuto:
                     ultimo_minuto = minuto
-                    for hora, texto in leer():
-                        if hora == minuto:
-                            self.cola.put_nowait((hora, texto))
+                    hoy = time.strftime("%d/%m")
+                    for r in todos():
+                        if r["hora"] == minuto and r["fecha"] in (None, hoy):
+                            self.cola.put_nowait(r)
+                    _limpiar_viejos()
             except Exception as e:  # un error acá no tiene que tirar abajo la charla
                 print(f"(error en recordatorios: {e})", flush=True)
             await asyncio.sleep(5)
 
     async def _decir_en_orden(self):
         while True:
-            hora, texto = await self.cola.get()
+            r = await self.cola.get()
             try:
-                await self.sonar(hora, texto)
+                await self.sonar(r["hora"], r["texto"])
             except Exception as e:
-                print(f"(error en el recordatorio «{texto}»: {e})", flush=True)
+                print(f"(error en el recordatorio «{r['texto']}»: {e})", flush=True)
+            finally:
+                if r["fecha"]:
+                    borrar(exacto=r["linea"])  # los de una sola vez se van después de sonar
 
     async def sonar(self, hora, texto):
         while self.ocupado():  # si está charlando o en una emergencia, espera

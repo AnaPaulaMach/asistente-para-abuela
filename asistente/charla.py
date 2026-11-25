@@ -36,6 +36,7 @@ import telegram_bot
 from frases import VOZ  # una sola voz para la charla y las frases grabadas
 from luces import luz
 from radio import Radio
+import recordatorios as avisos
 from recordatorios import Recordatorios
 from volumen import Volumen
 
@@ -137,6 +138,30 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
         "required": ["sobre"],
     },
 ), types.FunctionDeclaration(
+    name="agregar_recordatorio",
+    description=("Agrega un recordatorio que ella pide ('recordame...'). Por defecto es de una sola "
+                 "vez; todos_los_dias solo si lo dice ('todos los días', 'siempre')."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "hora": {"type": "string", "description": "HH:MM en 24 horas, por ejemplo 17:00"},
+            "texto": {"type": "string",
+                      "description": ("lo que vas a decir a esa hora, dirigido a ella, por ejemplo "
+                                      "'Es hora de regar las plantas'")},
+            "fecha": {"type": "string", "description": "DD/MM si dijo un día; vacío para hoy (o mañana si ya pasó)"},
+            "todos_los_dias": {"type": "boolean"},
+        },
+        "required": ["hora", "texto"],
+    },
+), types.FunctionDeclaration(
+    name="borrar_recordatorio",
+    description="Borra los recordatorios sobre un tema cuando ella lo pide.",
+    parameters_json_schema={
+        "type": "object",
+        "properties": {"sobre": {"type": "string", "description": "palabras clave, por ejemplo 'plantas'"}},
+        "required": ["sobre"],
+    },
+), types.FunctionDeclaration(
     name="hora_actual",
     description=("Devuelve la fecha y la hora exactas de donde vive ella (Argentina). Usala SIEMPRE "
                  "que pregunte la hora, el día o la fecha: no la calcules ni la supongas."),
@@ -184,6 +209,10 @@ def instrucciones():
     if PERFIL.exists() or gente:
         sobre_ella = PERFIL.read_text().strip() if PERFIL.exists() else ""
         partes.append("Sobre ella y su gente:\n" + "\n".join(t for t in (gente, sobre_ella) if t))
+    pendientes = avisos.todos()
+    if pendientes:
+        partes.append("Sus recordatorios (los sin fecha suenan todos los días):\n" + "\n".join(
+            f"- {r['fecha'] + ' ' if r['fecha'] else ''}{r['hora']}: {r['texto']}" for r in pendientes))
     notas = memoria.para_el_prompt()
     if notas:
         partes.append(notas)
@@ -239,6 +268,23 @@ def volumen_rms(datos):
     """Volumen promedio de un bloque (raíz del promedio de los cuadrados)."""
     muestras = array.array("h", datos)
     return (sum(x * x for x in muestras) / len(muestras)) ** 0.5 if muestras else 0
+
+
+def agregar_recordatorio(args):
+    """Lo que pidió Gemini, con la fecha resuelta: sin fecha y sin "todos los días"
+    es hoy, o mañana si esa hora ya pasó."""
+    hora, texto = (args.get("hora") or "").strip(), (args.get("texto") or "").strip()
+    if args.get("todos_los_dias"):
+        return {"ok": True, "anotado": avisos.agregar(hora, texto), "repite": "todos los días"}
+    fecha = (args.get("fecha") or "").strip()
+    try:
+        t = time.strptime(hora, "%H:%M")
+    except ValueError:
+        raise ValueError("la hora tiene que ser HH:MM, de 00:00 a 23:59") from None
+    if not fecha:
+        cuando = time.time() + (0 if (t.tm_hour, t.tm_min) > time.localtime()[3:5] else 86400)
+        fecha = time.strftime("%d/%m", time.localtime(cuando))
+    return {"ok": True, "anotado": avisos.agregar(hora, texto, fecha), "repite": "una sola vez"}
 
 
 class PasaAltos:
@@ -452,6 +498,14 @@ class Charla:
                 resultado = memoria.recordar(args.get("nota") or "")
             elif llamada.name == "olvidar":
                 resultado = memoria.olvidar(args.get("sobre") or "")
+            elif llamada.name == "agregar_recordatorio":
+                try:
+                    resultado = agregar_recordatorio(args)
+                except ValueError as e:
+                    resultado = {"error": str(e)}
+            elif llamada.name == "borrar_recordatorio":
+                borrados = avisos.borrar(sobre=args.get("sobre") or "")
+                resultado = {"ok": True, "borrados": borrados} if borrados else {"error": "no encontré ese recordatorio"}
             elif llamada.name == "hora_actual":
                 ahora = time.localtime()  # el reloj de la Pi: hora de Argentina, sincronizada
                 resultado = {"hora": f"{ahora.tm_hour}:{ahora.tm_min:02d}",
