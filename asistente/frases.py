@@ -30,6 +30,7 @@ FRASES = {
     "mensaje_mandado": "Ya les mandé lo que me dijiste. Quedate tranquila, ya te van a llamar.",
     "tranquila": "Quedate tranquila, tu familia ya sabe que necesitás ayuda.",
     "confirmado": "¡Muy bien! Gracias por avisarme.",
+    "toca_cuando": "Tocá el botón cuando lo hayas hecho.",
     "no_conecta": "No me puedo conectar ahora. Probá de nuevo en un ratito.",
     "pregunta_responder": "¿Querés contestarle? Tocá el botón y hablá.",
     "respuesta_mandada": "Listo, se lo mandé.",

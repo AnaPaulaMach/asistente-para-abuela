@@ -212,6 +212,8 @@ class Recordatorios:
                 luz("recordatorio")
                 if voz.exists():
                     await alerta._correr("aplay", "-q", "-D", alerta.PLACA, str(voz))
+                    # Que quede claro que la luz lila espera un toque.
+                    await alerta.decir("toca_cuando")
                 else:
                     await alerta.decir("recordatorio_sin_voz")
                 try:
