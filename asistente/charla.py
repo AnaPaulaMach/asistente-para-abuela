@@ -48,7 +48,9 @@ ESCUCHA_MAX = 90                   # tope por vez: habla mucho, y 90 s cuestan m
 ESPERA_RESPUESTA = 10              # después de una pregunta, cuánto espera que empiece a hablar
 GANANCIA_MIC = 3                   # los mics graban bajito: x3 (~+10 dB) antes de mandar
 UMBRAL_VOZ = 350                   # RMS ya amplificado: silencio ~240, voz baja ~1000 o más
-INACTIVIDAD = 120                  # segundos sin toques antes de cerrar la conexión
+INACTIVIDAD = 120                  # segundos sin que nadie hable antes de cerrar la conexión
+ESPERA_TOQUE = 15                  # después de un toque, cuánto espera que empiece a hablar
+FIN_SILENCIO = 5                   # silencio (según la Pi) que da su turno por terminado
 CONEXION_MAX = 10                  # segundos máximos para conectarse con Gemini
 
 # Las instrucciones para Gemini están en archivos de texto, no en el código:
@@ -190,6 +192,7 @@ class Charla:
         self.respuesta = ""      # lo que va diciendo Gemini en esta respuesta
         self.automatico = False  # escuchando solo, esperando que conteste
         self.oyo_algo = False    # Gemini transcribió algo de lo que dijo ella
+        self.ultima_actividad = time.monotonic()  # cuándo habló alguien por última vez
         self.tokens = Counter()  # consumo de esta conexión, por tipo
         self.inicio = time.monotonic()
 
@@ -216,28 +219,44 @@ class Charla:
         self.envio = asyncio.create_task(self._mandar_mic(espera))
 
     async def _mandar_mic(self, espera):
-        """Manda el micrófono a Gemini. Con `espera` (segundos) es la escucha
-        automática después de una pregunta: si en ese tiempo no empieza a
-        hablar, corta. Si empieza, sigue hasta que Gemini contesta."""
+        """Manda el micrófono a Gemini, con dos controles propios además de
+        la detección de voz de Gemini (que con ruido de fondo puede no darse
+        cuenta de que terminó):
+        - si no empieza a hablar en `espera` segundos (10 después de una
+          pregunta, 15 después de un toque), corta;
+        - si empezó y después hay FIN_SILENCIO segundos de silencio, da su
+          turno por terminado para que Gemini conteste."""
         filtro = PasaAltos()
         mic = self.mic
-        hablo = espera is None
-        ultimos = []  # ¿los últimos 5 bloques pasaron el umbral?
+        espera = ESPERA_TOQUE if espera is None else espera
+        hablo = False
+        ultimos = []   # ¿los últimos 5 bloques pasaron el umbral?
+        callado = 0    # bloques seguidos en silencio desde que habló
         try:
             await mic.stdout.readexactly(DESCARTE)
             for bloque in range(ESCUCHA_MAX * 10):
                 datos = filtro(await mic.stdout.readexactly(BLOQUE))
                 await self.sesion.send_realtime_input(
                     audio=types.Blob(data=datos, mime_type=f"audio/pcm;rate={TASA_MIC}"))
+                fuerte = volumen_rms(datos) > UMBRAL_VOZ
                 if hablo:
+                    callado = 0 if fuerte else callado + 1
+                    if fuerte:
+                        self.ultima_actividad = time.monotonic()
+                    if callado >= FIN_SILENCIO * 10:
+                        await self.sesion.send_realtime_input(audio_stream_end=True)
+                        luz("pensando")
+                        print("  (terminó de hablar)", flush=True)
+                        return
                     continue
                 # ¿Empezó a hablar? 3 de los últimos 5 bloques (medio segundo)
                 # por encima del umbral, aunque no sean seguidos (la voz baja
                 # sube y baja), o que Gemini ya haya transcripto algo.
-                ultimos = (ultimos + [volumen_rms(datos) > UMBRAL_VOZ])[-5:]
+                ultimos = (ultimos + [fuerte])[-5:]
                 if sum(ultimos) >= 3 or self.oyo_algo:
                     hablo = True
                     self.automatico = False  # desde acá es una escucha normal
+                    self.ultima_actividad = time.monotonic()
                     print("  (te escucho)", flush=True)
                 elif (bloque + 1) / 10 >= espera:
                     await self.sesion.send_realtime_input(audio_stream_end=True)
@@ -272,6 +291,7 @@ class Charla:
         self.parlante = None
 
     async def hablar(self, datos, formato):
+        self.ultima_actividad = time.monotonic()
         if not self.parlante:
             await self.dejar_de_escuchar()
             tasa = re.search(r"rate=(\d+)", formato or "")
@@ -368,6 +388,7 @@ class Charla:
                     continue
                 if sc.input_transcription and sc.input_transcription.text:
                     self.oyo_algo = True
+                    self.ultima_actividad = time.monotonic()
                     print(f"  👵 {sc.input_transcription.text}", flush=True)
                 if sc.interrupted:
                     self.ignorar = False
@@ -479,11 +500,23 @@ async def main():
                 receptor = asyncio.create_task(charla.recibir())
                 while not receptor.done():
                     espera = asyncio.create_task(toques.get())
-                    hecho, _ = await asyncio.wait({espera, receptor}, timeout=INACTIVIDAD,
+                    hecho, _ = await asyncio.wait({espera, receptor}, timeout=10,
                                                   return_when=asyncio.FIRST_COMPLETED)
                     if espera not in hecho:
                         espera.cancel()
-                        break  # sin toques por un rato, o se cortó la conexión
+                        if receptor.done():
+                            break  # se cortó la conexión
+                        # Sin toques no alcanza para cerrar: la charla sigue sola
+                        # con la escucha automática. Se cierra cuando nadie habló
+                        # en INACTIVIDAD segundos y no está escuchando ni hablando.
+                        quieto = time.monotonic() - charla.ultima_actividad
+                        if charla.escuchando() or charla.parlante:
+                            continue
+                        if quieto > 20:
+                            luz("esperando")  # por si quedó "pensando" y Gemini no contestó
+                        if quieto < INACTIVIDAD:
+                            continue
+                        break
                     if espera.result() == "larga":
                         # Cerramos la charla primero: Gemini no tiene que hablar encima.
                         emergencia = True
