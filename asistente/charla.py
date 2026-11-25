@@ -144,14 +144,16 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
     parameters_json_schema={
         "type": "object",
         "properties": {
-            "hora": {"type": "string", "description": "HH:MM en 24 horas, por ejemplo 17:00"},
+            "hora": {"type": "string", "description": "HH:MM en 24 horas, por ejemplo 17:00 (vacía si usás en_minutos)"},
+            "en_minutos": {"type": "integer",
+                           "description": "si dice 'en 10 minutos' o 'dentro de una hora': los minutos (10, 60); el programa calcula la hora"},
             "texto": {"type": "string",
                       "description": ("lo que vas a decir a esa hora, dirigido a ella, por ejemplo "
                                       "'Es hora de regar las plantas'")},
             "fecha": {"type": "string", "description": "DD/MM si dijo un día; vacío para hoy (o mañana si ya pasó)"},
             "todos_los_dias": {"type": "boolean"},
         },
-        "required": ["hora", "texto"],
+        "required": ["texto"],
     },
 ), types.FunctionDeclaration(
     name="borrar_recordatorio",
@@ -273,16 +275,33 @@ def volumen_rms(datos):
 def agregar_recordatorio(args):
     """Lo que pidió Gemini, con la fecha resuelta: sin fecha y sin "todos los días"
     es hoy, o mañana si esa hora ya pasó."""
-    hora, texto = (args.get("hora") or "").strip(), (args.get("texto") or "").strip()
-    if args.get("todos_los_dias"):
-        return {"ok": True, "anotado": avisos.agregar(hora, texto), "repite": "todos los días"}
-    fecha = (args.get("fecha") or "").strip()
+    texto = (args.get("texto") or "").strip()
+    if args.get("en_minutos"):
+        # "En 10 minutos": la cuenta la hace la Pi con su reloj, no Gemini.
+        # Redondeado al minuto más cercano (+30 s); como mínimo, el minuto que viene.
+        cuando = time.localtime(time.time() + max(1, int(args["en_minutos"])) * 60 + 30)
+        return {"ok": True, "anotado": avisos.agregar(time.strftime("%H:%M", cuando), texto,
+                                                      time.strftime("%d/%m", cuando)), "repite": "una sola vez"}
+    hora = (args.get("hora") or "").strip()
     try:
         t = time.strptime(hora, "%H:%M")
     except ValueError:
         raise ValueError("la hora tiene que ser HH:MM, de 00:00 a 23:59") from None
+    if args.get("todos_los_dias"):
+        return {"ok": True, "anotado": avisos.agregar(hora, texto), "repite": "todos los días"}
+    fecha = (args.get("fecha") or "").strip()
     if not fecha:
-        cuando = time.time() + (0 if (t.tm_hour, t.tm_min) > time.localtime()[3:5] else 86400)
+        ahora = time.localtime()
+        pedido = t.tm_hour * 60 + t.tm_min
+        actual = ahora.tm_hour * 60 + ahora.tm_min
+        if pedido > actual:
+            cuando = time.time()                        # hoy
+        elif actual - pedido <= 2:
+            # Es "ya" (la hora de este minuto o de recién): que suene en el próximo minuto.
+            proximo = time.localtime(time.time() + 60)
+            hora, cuando = time.strftime("%H:%M", proximo), time.time() + 60
+        else:
+            cuando = time.time() + 86400                # esa hora ya pasó: mañana
         fecha = time.strftime("%d/%m", time.localtime(cuando))
     return {"ok": True, "anotado": avisos.agregar(hora, texto, fecha), "repite": "una sola vez"}
 
