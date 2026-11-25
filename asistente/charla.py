@@ -349,6 +349,8 @@ class Charla:
         self._candado = asyncio.Lock()            # abrir el micrófono, de a uno
         self.radio = None         # la Radio de main()
         self.radio_pendiente = None  # emisora a poner cuando termine de hablar
+        self.hablo_en_turno = False  # si Gemini dijo algo en esta respuesta
+        self._turnos_sin_voz = 0     # respuestas vacías esperando para poner la radio
         self.tokens = Counter()  # consumo de esta conexión, por tipo
         self.inicio = time.monotonic()
 
@@ -458,6 +460,7 @@ class Charla:
 
     async def hablar(self, datos, formato):
         self.ultima_actividad = time.monotonic()
+        self.hablo_en_turno = True
         if not self.parlante:
             await self.dejar_de_escuchar()
             tasa = re.search(r"rate=(\d+)", formato or "")
@@ -614,10 +617,20 @@ class Charla:
                     pregunto = "?" in self.respuesta and not descartada
                     self.respuesta = ""
                     await self.fin_de_respuesta()  # espera a que termine de sonar
+                    hablo, self.hablo_en_turno = self.hablo_en_turno, False
                     if self.radio_pendiente and self.radio:
+                        # Pedir la herramienta cierra una "respuesta" sin voz: la radio
+                        # arranca recién después de que Beto dijo "te pongo la…" (si no,
+                        # la placa, con un solo reloj, deja a una de las dos muda).
+                        if not hablo and self._turnos_sin_voz < 2:
+                            self._turnos_sin_voz += 1
+                            continue
+                        await self.dejar_de_escuchar()
                         self.radio.tocar(self.radio_pendiente)
-                        self.radio_pendiente = None
+                        self.radio_pendiente, self._turnos_sin_voz = None, 0
                         print("(sonando la radio; un toque la apaga)", flush=True)
+                    elif self.radio and self.radio.sonando():
+                        pass   # con la radio sonando no se escucha solo: oiría la radio
                     elif not descartada:
                         # Después de cada respuesta queda escuchando solo, sin que toque
                         # el botón: más rato si le preguntó algo, un poco siempre, por
@@ -764,8 +777,10 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
                         # con la escucha automática. Se cierra cuando nadie habló
                         # en INACTIVIDAD segundos y no está escuchando ni hablando.
                         quieto = time.monotonic() - charla.ultima_actividad
-                        if charla.escuchando() or charla.parlante or radio.sonando():
+                        if charla.escuchando() or charla.parlante:
                             continue
+                        if radio.sonando():
+                            break   # puso la radio: la charla termina (un toque abre otra)
                         if quieto > 20:
                             luz("esperando")  # por si quedó "pensando" y Gemini no contestó
                         if quieto < INACTIVIDAD:
