@@ -39,6 +39,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 | `personas.py` | Lee `personas.toml` y arma el texto para el prompt (sin teléfonos) y los cumpleaños del día |
 | `alerta.py` | La emergencia: pregunta, cuenta regresiva, aviso y mensaje de voz por Telegram |
 | `recordatorios.py` | Recordatorios diarios con confirmación y aviso si no confirma |
+| `noticias.py` | Titulares del día (RSS de Google Noticias, sin clave) sin policiales ni tragedias; herramienta de Gemini |
 | `clima.py` | El pronóstico de Open-Meteo (herramienta de Gemini) |
 | `volumen.py` | Niveles del 1 al 10, guardados; la ruedita y Gemini usan lo mismo |
 | `leds.py` / `luces.py` | Las luces corren aparte, como root; la charla les manda el estado por UDP local |

@@ -26,6 +26,7 @@ from gpiozero import Button, RotaryEncoder
 
 import alerta
 import clima
+import noticias
 import personas
 import telegram_bot
 from frases import VOZ  # una sola voz para la charla y las frases grabadas
@@ -80,6 +81,20 @@ HERRAMIENTAS = [types.Tool(function_declarations=[types.FunctionDeclaration(
     description=("Devuelve el clima de ahora y el pronóstico de hoy y mañana donde vive ella. "
                  "Usala cuando pregunte por el clima, la temperatura o si va a llover."),
     parameters_json_schema={"type": "object", "properties": {}},
+), types.FunctionDeclaration(
+    name="noticias",
+    description=("Trae los titulares del último día de los diarios de donde vive ella, ya sin "
+                 "noticias policiales ni tragedias. Usala cuando pregunte qué pasó hoy, qué hay "
+                 "de nuevo, o por un tema (fútbol, un festival, un barrio)."),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "tema": {"type": "string",
+                     "description": "palabras para buscar, por ejemplo 'fútbol' o 'Añatuya'; vacío para lo general"},
+            "incluir_delicadas": {"type": "boolean",
+                                  "description": "true SOLO si ella pregunta directamente por un hecho policial o un accidente"},
+        },
+    },
 )])]
 
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -325,6 +340,12 @@ class Charla:
                     resultado = await asyncio.to_thread(clima.consultar)
                 except Exception as e:  # sin internet, etc.: que lo diga, no que invente
                     resultado = {"error": f"no pude consultar el clima ({e})"}
+            elif llamada.name == "noticias":
+                try:
+                    resultado = await asyncio.to_thread(
+                        noticias.buscar, args.get("tema") or "", bool(args.get("incluir_delicadas")))
+                except Exception as e:
+                    resultado = {"error": f"no pude traer las noticias ({e})"}
             else:
                 resultado = {"error": f"no conozco la función {llamada.name}"}
             respuestas.append(types.FunctionResponse(id=llamada.id, name=llamada.name,

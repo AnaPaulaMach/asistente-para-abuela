@@ -17,6 +17,8 @@ A las 9 se pone **lila** y dice: *"Acordate de tomar la pastilla de la presión.
 — *"Beto, ¿cómo está el día?"*
 **🟢 Verde** mientras contesta: *"Hay 26 grados y está algo nublado. Puede que llueva un poco a la tarde."* (Ella les tiene miedo a las tormentas, así que Beto las nombra al pasar y con calma.)
 
+**A la siesta** pregunta *"¿Qué pasó hoy en el pueblo?"* y Beto le cuenta dos o tres noticias de los diarios de su ciudad: el festival, el partido, quién viene a tocar. Las policiales y las tragedias se quedan afuera, salvo que ella pregunte justo por eso.
+
 **Por la tarde** tiene ganas de charlar. Beto sabe quién es la familia, cuándo cumplen años y qué le gusta. Si le hace una pregunta, se queda escuchando solo unos segundos, sin que tenga que tocar nada, porque ella tarda un poquito en arrancar a hablar. Y no la apura: espera a que termine, aunque haga pausas.
 
 **Si habla bajito o le cuesta oír**, se gira la ruedita (o se le pide *"hablá más fuerte"*) y el anillo muestra una barrita blanca con el volumen.
