@@ -419,6 +419,16 @@ async def main():
           "Tocá el botón y hablá; la ruedita cambia el volumen. Ctrl+C para salir.", flush=True)
     luz("esperando")
 
+    # Órdenes del panel de control (panel.py), por UDP y solo dentro de la Pi.
+    # Por ahora una: "volumen N". El volumen vive acá, así no se pisan.
+    class Control(asyncio.DatagramProtocol):
+        def datagram_received(self, datos, _origen):
+            palabras = datos.decode(errors="ignore").split()
+            if len(palabras) == 2 and palabras[0] == "volumen" and palabras[1].isdigit():
+                volumen.fijar(int(palabras[1]))
+
+    await loop.create_datagram_endpoint(Control, local_addr=("127.0.0.1", 47475))
+
     # Los recordatorios corren en paralelo ("tarea" de asyncio) y esperan
     # cuando hay una charla o una emergencia en curso.
     recordatorios = Recordatorios(cliente, ocupado=lambda: charla is not None or alerta.activa)
