@@ -65,6 +65,50 @@ def normalizar(wav, ganancia_max=20):
     print(f"   (volumen x{ganancia:.1f})", flush=True)
 
 
+async def grabar_hasta_silencio(wav, esperar=8, silencio=3, maximo=60, umbral=200):
+    """Graba al micrófono hasta que la persona se calla, sin Gemini (sin tokens).
+
+    Mide el volumen cada 0,1 s (sin la "continua"): si en `esperar` segundos no
+    empezó a hablar, no graba nada y devuelve False; si habló, corta después de
+    `silencio` segundos callada, o a los `maximo`. Medido en el aparato: en
+    silencio da ~80 y una voz normal ~1100; `umbral` deja pasar la voz baja.
+    """
+    tasa, bloque = 16000, 3200   # 100 ms de audio mono de 16 bits
+    mic = await asyncio.create_subprocess_exec(
+        "arecord", "-q", "-D", PLACA, "-t", "raw", "-f", "S16_LE", "-r", str(tasa), "-c", "1",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+    audio, ultimos, hablo, callado = bytearray(), [], False, 0
+    try:
+        await mic.stdout.readexactly(tasa * 2 * 15 // 100)   # el salto del conversor al arrancar
+        for n in range(maximo * 10):
+            datos = await mic.stdout.readexactly(bloque)
+            muestras = array.array("h", datos)
+            media = sum(muestras) / len(muestras)
+            fuerte = (sum((x - media) ** 2 for x in muestras) / len(muestras)) ** 0.5 > umbral
+            audio += datos
+            if not hablo:
+                ultimos = (ultimos + [fuerte])[-5:]
+                hablo = sum(ultimos) >= 3           # 3 de los últimos 5 bloques con voz
+                if not hablo and (n + 1) / 10 >= esperar:
+                    return False
+            else:
+                callado = 0 if fuerte else callado + 1
+                if callado >= silencio * 10:
+                    break
+    except asyncio.IncompleteReadError:
+        pass
+    finally:
+        if mic.returncode is None:
+            mic.kill()
+        await mic.wait()
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(tasa)
+        w.writeframes(bytes(audio))
+    return hablo
+
+
 async def decir(frase):
     await _correr("aplay", "-q", "-D", PLACA, str(FRASES / f"{frase}.wav"))
 

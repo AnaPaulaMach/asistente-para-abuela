@@ -29,6 +29,7 @@ VOCES = CASA / "frases" / "mensajes"            # avisos grabados ("Te llegó un
 RECIENTES = telegram_bot.CONFIG / "mensajes-recientes.json"
 LARGO_MAX = 600                                   # caracteres: un mensaje más largo se corta
 VIEJO = 10                                        # minutos: un mensaje más viejo no se dice
+ESPERA_RESPUESTA = 15                             # segundos para tocar el botón y contestar
 
 
 def _ella():
@@ -78,6 +79,9 @@ class Mensajes:
         self.ocupado = ocupado        # función: ¿hay charla, emergencia o recordatorio en curso?
         self.radio = radio
         self.entregando = False
+        self.esperando_toque = False  # preguntó "¿querés contestarle?" y espera un toque
+        self._toque = None
+        self._cancelado = False
         self.cola = asyncio.Queue()
         self._desconocidos = {}       # chat -> cuándo se avisó (un aviso por hora)
 
@@ -160,6 +164,7 @@ class Mensajes:
                 await self._entregar(m)
                 await asyncio.to_thread(telegram_bot.mandar_texto, m["chat"],
                                         f"✓ Se lo dije a {_ella()} ({time.strftime('%H:%M')}).")
+                await self._ofrecer_respuesta(m)
             except Exception as e:
                 print(f"(no pude decir el mensaje de {m['de']}: {e})", flush=True)
                 try:
@@ -173,6 +178,42 @@ class Mensajes:
                     self.radio.tocar(pausada)
                 else:
                     luz("esperando")
+
+    def atender_toque(self, toque):
+        """charla.py lo llama con cada toque. True si el toque era para contestar."""
+        if not self.esperando_toque:
+            return False
+        self._cancelado = toque == "larga"   # mantenerlo apretado es la emergencia
+        self._toque.set()
+        return not self._cancelado
+
+    async def _ofrecer_respuesta(self, m):
+        """'¿Querés contestarle?': si toca el botón, la graba hasta que se calla y
+        se la manda como nota de voz. Todo con frases grabadas y en la Pi: sin tokens."""
+        await alerta.decir("pregunta_responder")
+        self._toque, self._cancelado = asyncio.Event(), False
+        self.esperando_toque = True
+        luz("mensaje")
+        try:
+            await asyncio.wait_for(self._toque.wait(), timeout=ESPERA_RESPUESTA)
+        except asyncio.TimeoutError:
+            return
+        finally:
+            self.esperando_toque = False
+        if self._cancelado:
+            return
+        luz("escuchando")
+        with tempfile.TemporaryDirectory() as tmp:
+            wav, ogg = Path(tmp) / "respuesta.wav", Path(tmp) / "respuesta.ogg"
+            if not await alerta.grabar_hasta_silencio(wav):
+                await alerta.decir("respuesta_sin_voz")
+                return
+            await asyncio.to_thread(alerta.normalizar, wav)
+            await alerta._correr("opusenc", "--quiet", str(wav), str(ogg))
+            luz("pensando")
+            await asyncio.to_thread(telegram_bot.mandar_voz, m["chat"], ogg, f"🎤 Respuesta de {_ella()}")
+        await alerta.decir("respuesta_mandada")
+        print(f"🎤 {_ella()} le contestó a {m['de']}", flush=True)
 
     async def _entregar(self, m):
         if "texto" in m:

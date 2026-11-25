@@ -582,6 +582,8 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
     """El ciclo de toques: charla, emergencia y confirmación de recordatorios."""
     while True:
         toque = await toques.get()
+        if mensajes.atender_toque(toque):
+            continue  # el toque era para contestar el mensaje que le llegó
         while mensajes.entregando:  # si está diciendo un mensaje, que termine (son segundos)
             await asyncio.sleep(0.2)
         if radio.sonando():

@@ -30,6 +30,9 @@ FRASES = {
     "tranquila": "Quedate tranquila, tu familia ya sabe que necesitás ayuda.",
     "confirmado": "¡Muy bien! Gracias por avisarme.",
     "no_conecta": "No me puedo conectar ahora. Probá de nuevo en un ratito.",
+    "pregunta_responder": "¿Querés contestarle? Tocá el botón y hablá.",
+    "respuesta_mandada": "Listo, se lo mandé.",
+    "respuesta_sin_voz": "No te escuché. Si querés contestarle, pedímelo más tarde.",
     "recordatorio_sin_voz": "Tenés un recordatorio, pero no lo puedo leer porque no hay internet.",
     "sin_internet": "No pude avisar porque no hay internet. Sigo intentando. Si podés, llamá por teléfono.",
 }
