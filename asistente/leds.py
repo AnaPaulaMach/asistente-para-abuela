@@ -21,9 +21,10 @@ from rpi_ws281x import Color, PixelStrip
 CANTIDAD = 16
 QUIETOS = {"escuchando", "volumen", "apagado"}   # estados sin animación
 PUERTO = 47474
-# Brillo global (0-255). Los 16 LEDs al máximo piden casi 1 A y pueden hacer
-# caer la tensión de la Pi; con 40 se ven bien y consumen poco.
-BRILLO = 40
+# Brillo global (0-255), en ajustes.env (LUCES_BRILLO). Bien bajo: que se vea
+# sin encandilar. Con menos de 8 los colores mezclados (rosa, lila) se pierden,
+# porque a cada canal le quedan muy pocos escalones.
+BRILLO = 8
 
 ROSA = (255, 40, 120)
 AZUL = (0, 60, 255)
@@ -35,17 +36,25 @@ LILA = (150, 60, 255)
 CELESTE = (0, 170, 255)
 BLANCO_CALIDO = (255, 170, 90)
 
+def _ajuste(nombre):
+    """Un valor de ajustes.env, o None."""
+    try:
+        for linea in open("/home/" + _usuario() + "/.config/asistente/ajustes.env"):
+            if linea.startswith(nombre + "="):
+                return linea.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
 # De noche, "esperando" es una luz blanca cálida, tenue y fija: compañía para no
 # estar a oscuras (y para ver por dónde camina). Horas en ajustes.env (NOCHE=21-7).
 def _horas_de_noche():
     try:
-        for linea in open("/home/" + _usuario() + "/.config/asistente/ajustes.env"):
-            if linea.startswith("NOCHE="):
-                desde, hasta = linea.split("=", 1)[1].strip().split("-")
-                return int(desde), int(hasta)
-    except (OSError, ValueError):
-        pass
-    return 21, 7
+        desde, hasta = _ajuste("NOCHE").split("-")
+        return int(desde), int(hasta)
+    except (AttributeError, ValueError):
+        return 21, 7
 
 
 def _usuario():
@@ -116,7 +125,11 @@ def dibujar(estado, extra, t):
 
 
 def main():
-    tira = PixelStrip(CANTIDAD, 12, 800000, 10, False, BRILLO, 0)
+    try:
+        brillo = max(1, min(255, int(_ajuste("LUCES_BRILLO") or BRILLO)))
+    except ValueError:
+        brillo = BRILLO
+    tira = PixelStrip(CANTIDAD, 12, 800000, 10, False, brillo, 0)
     tira.begin()
 
     entrada = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
