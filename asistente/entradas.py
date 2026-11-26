@@ -5,7 +5,7 @@ pines todo el tiempo (4-5 % de un núcleo aunque nadie toque nada). Acá el
 kernel despierta al programa solo cuando hay un cambio, a través del mismo
 bucle de asyncio: en reposo, 0 %.
 
-- Botón (GPIO17, a masa al apretar): toque corto o pulsación larga (2 s).
+- Botón (GPIO17, a masa al apretar): toque corto o pulsación larga (4 s).
 - Ruedita (GPIO13 y GPIO26): la misma tabla de estados que usa gpiozero, que
   ya andaba bien con este encoder (tolera rebotes y "medio pasos").
 """
@@ -16,7 +16,7 @@ from gpiod.line import Bias, Direction, Edge
 
 CHIP = "/dev/gpiochip0"
 BOTON, RUEDITA_A, RUEDITA_B = 17, 13, 26
-LARGA = 2.0   # segundos apretado para que sea la emergencia
+LARGA = 4.0   # segundos apretado para que sea la emergencia (aprieta despacio)
 
 # Copiada de gpiozero (RotaryEncoder.TRANSITIONS). El índice es
 # (A activo << 1) | (B activo); al completar una vuelta da '+1' o '-1'.

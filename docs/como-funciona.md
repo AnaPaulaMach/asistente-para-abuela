@@ -34,7 +34,7 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 
 | Archivo | Qué hace |
 |---|---|
-| `charla.py` | El programa principal: botón, ruedita, conexión con Gemini Live, escucha automática después de una pregunta |
+| `charla.py` | El programa principal: botón, ruedita, conexión con Gemini Live, escucha automática después de cada respuesta; mide el ruido de fondo (la tele) para saber cuándo se calló, y un toque después de hablar es "terminé" |
 | `entradas.py` | El botón y la ruedita con libgpiod: el kernel avisa cuando un pin cambia (0 % de CPU en reposo) |
 | `tareas.py` | Tareas de fondo que no se pierden y anotan sus errores |
 | `prompt/base.md` | Las instrucciones de Gemini (públicas). El perfil y la familia van aparte, en archivos privados |
@@ -59,7 +59,9 @@ Para ver qué pasa: `journalctl -u asistente-charla -f`
 
 - **Pensado para una Pi Zero encendida todo el día:** en reposo la charla usa 0 % de CPU (libgpiod en vez de un hilo que revisa los pines), el audio se procesa con numpy, las luces no redibujan cuando nada cambia, y nada se queda esperando para siempre (límites de tiempo con Gemini; los procesos de audio mueren si se cancela su tarea).
 
-- **"Tocar y hablar", no "mantener apretado para hablar":** mantener apretado es la emergencia.
+- **"Tocar y hablar", no "mantener apretado para hablar":** mantener apretado 4 segundos es la emergencia (ella aprieta despacio: con 2 un toque largo podía tomarse como emergencia).
+- **Voz bajita y tele prendida:** el micrófono se amplifica x5, la voz cuenta solo si se oye por encima del ruido de los últimos 3 segundos, y si Gemini no contesta en 10 segundos se le pide que diga que no la escuchó (la luz nunca queda girando).
+- **Adivinanzas:** cada charla recibe 4 al azar de `prompt/adivinanzas.txt`, así no repite siempre la misma.
 - **La emergencia avisa si nadie la cancela:** si se cayó y no puede contestar, el aviso tiene que salir igual.
 - **Las herramientas de Gemini** (*function calling*): Gemini no cambia el volumen ni busca el clima por su cuenta; le pide al programa que lo haga.
 - **Cuánto se paga:** cada respuesta vuelve a procesar toda la charla anterior; por eso la conexión se cierra a los 2 minutos sin uso.

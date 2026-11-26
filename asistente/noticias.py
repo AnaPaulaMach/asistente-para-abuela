@@ -28,6 +28,20 @@ DELICADAS = (
 # (y las tormentas le dan miedo).
 CLIMA = ("clima", "pronóstico", "tormenta", "smn", "alerta", "granizo", "lluvia", "temperatura")
 CANTIDAD = 12
+# Palabras que no dicen de qué trata una noticia (para juntar las repetidas).
+VACIAS = set("""el la los las un una unos unas de del al a en y o que por para con sin se su sus
+    es son lo le les como más pero este esta ya ante tras sobre desde hasta entre""".split())
+
+
+def _palabras(titulo):
+    return {p.strip('.,:;"“”¿?¡!()') for p in titulo.lower().split()} - VACIAS - {""}
+
+
+def _misma_noticia(a, b):
+    """Varios diarios cuentan lo mismo con otro título: si comparten 3 palabras
+    que importan (o casi todas las del más corto), es la misma noticia."""
+    comunes = len(a & b)
+    return comunes >= 3 or comunes >= 0.6 * min(len(a), len(b))
 
 
 def _es_delicada(titulo):
@@ -35,7 +49,7 @@ def _es_delicada(titulo):
     return any(p in t for p in DELICADAS)
 
 
-def buscar(tema="", incluir_delicadas=False, dias=1):
+def buscar(tema="", incluir_delicadas=False, dias=2):
     """Devuelve los titulares más nuevos: [{titulo, fuente, hace_horas}]."""
     lugar = leer_env(CONFIG / "ajustes.env").get("NOTICIAS_LUGAR", "").strip()
     if not lugar:
@@ -48,17 +62,18 @@ def buscar(tema="", incluir_delicadas=False, dias=1):
         raiz = ET.fromstring(r.read())
 
     ahora = time.time()
-    vistas, lista, sacadas = set(), [], 0
+    vistas, lista, sacadas = [], [], 0   # vistas: las palabras de cada noticia ya anotada
     for item in raiz.findall("./channel/item"):
         fuente = item.findtext("source") or ""
         titulo = (item.findtext("title") or "").strip()
         # Google le agrega " - Nombre del diario" al final: se lo sacamos.
         if fuente and titulo.endswith(" - " + fuente):
             titulo = titulo[: -len(" - " + fuente)]
-        clave = titulo.lower()[:60]
-        if not titulo or clave in vistas or any(p in titulo.lower() for p in CLIMA):
-            continue  # repetidas, o del clima
-        vistas.add(clave)
+        palabras = _palabras(titulo) - set(_palabras(lugar))
+        if not titulo or any(p in titulo.lower() for p in CLIMA) \
+                or any(_misma_noticia(palabras, v) for v in vistas):
+            continue  # del clima, o la misma noticia contada por otro diario
+        vistas.append(palabras)
         if not incluir_delicadas and _es_delicada(titulo):
             sacadas += 1
             continue
@@ -69,7 +84,7 @@ def buscar(tema="", incluir_delicadas=False, dias=1):
         lista.append({"titulo": titulo, "fuente": fuente, "hace_horas": horas})
 
     lista.sort(key=lambda n: n["hace_horas"] if n["hace_horas"] is not None else 99)
-    if not lista and dias == 1 and tema:
+    if not lista and dias <= 2 and tema:
         return buscar(tema, incluir_delicadas, dias=7)  # un tema puntual: mirar la semana
     return {"lugar": lugar, "noticias": lista[:CANTIDAD], "sacadas_por_delicadas": sacadas}
 

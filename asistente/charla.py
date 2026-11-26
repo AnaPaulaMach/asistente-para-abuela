@@ -4,7 +4,7 @@
 - Toque corto: el asistente escucha. Hablás, y cuando hacés silencio Gemini contesta
   por el parlante. Para seguir la charla, otro toque.
 - Si tocás mientras Gemini habla, lo interrumpís y vuelve a escuchar.
-- Pulsación larga (2 s): reservada para la emergencia (etapa e); por ahora solo
+- Pulsación larga (4 s): reservada para la emergencia (etapa e); por ahora solo
   la anuncia. Por eso se escucha al SOLTAR el toque y no al apretar.
 - La conexión con Gemini queda abierta 2 minutos después del último toque, así
   recuerda de qué venían hablando; después se cierra y el próximo toque la abre.
@@ -13,10 +13,11 @@ Se corre con el venv: ~/asistente/venv/bin/python ~/asistente/charla.py   (Ctrl+
 """
 import asyncio
 import contextlib
+import random
 import re
 import signal
 import time
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 
 import numpy as np
@@ -56,8 +57,11 @@ DESCARTE = TASA_MIC * 2 * 15 // 100  # los primeros 150 ms traen un salto del co
 ESCUCHA_MAX = 90                   # tope por vez: habla mucho, y 90 s cuestan menos de 1 centavo
 ESPERA_RESPUESTA = 10              # después de una pregunta, cuánto espera que empiece a hablar
 ESPERA_SIN_PREGUNTA = 5            # después de cualquier otra respuesta, por si sigue hablando
-GANANCIA_MIC = 3                   # los mics graban bajito: x3 (~+10 dB) antes de mandar
-UMBRAL_VOZ = 350                   # RMS ya amplificado: silencio ~240, voz baja ~1000 o más
+GANANCIA_MIC = 5                   # los mics graban bajito y ella habla bajito: x5 (~+14 dB)
+UMBRAL_VOZ = 580                   # RMS ya amplificado: silencio ~400, voz baja ~1600 o más
+SOBRE_EL_RUIDO = 1.8               # con la tele prendida: la voz tiene que pasar 1,8 veces el ruido
+VENTANA_RUIDO = 30                 # bloques (3 s) para medir el ruido de fondo: el más bajo
+SIN_RESPUESTA = 10                 # segundos sin respuesta de Gemini antes de insistir
 INACTIVIDAD = 120                  # segundos sin que nadie hable antes de cerrar la conexión
 ESPERA_TOQUE = 15                  # después de un toque, cuánto espera que empiece a hablar
 FIN_SILENCIO = 5                   # silencio (según la Pi) que da su turno por terminado
@@ -70,6 +74,7 @@ CONEXION_MAX = 10                  # segundos máximos para conectarse con Gemin
 # Se leen en cada conexión: si los editás, la próxima charla ya los usa.
 PROMPT_BASE = Path(__file__).parent / "prompt" / "base.md"
 PERFIL = Path.home() / ".config" / "asistente" / "perfil.md"
+ADIVINANZAS = Path(__file__).parent / "prompt" / "adivinanzas.txt"
 
 # Funciones que Gemini puede pedir que ejecutemos ("function calling"): le
 # describimos qué hacen y qué datos llevan, y él decide cuándo usarlas.
@@ -230,6 +235,12 @@ def instrucciones():
         partes.append("Mensajes que le llegaron por Telegram en las últimas 24 horas (ya se los dijiste; "
                       "repetíselos si te pregunta):\n" + "\n".join(
                           f"- {m['hora']}, de {m['de']}: {m['texto']}" for m in llegados))
+    adivinanzas = [l for l in ADIVINANZAS.read_text().splitlines() if "|" in l and not l.startswith("#")]
+    if adivinanzas:
+        partes.append("Adivinanzas para esta charla (si proponés o te pide una, usá estas y en "
+                      "este orden; no inventes ni repitas):\n" + "\n".join(
+                          "- " + l.replace(" | ", " (respuesta: ") + ")"
+                          for l in random.sample(adivinanzas, min(4, len(adivinanzas)))))
     lista = radios.emisoras()
     if lista:
         partes.append("Radios que podés poner con poner_radio:\n" + "\n".join(
@@ -345,6 +356,9 @@ class Charla:
         self.respuesta = ""      # lo que va diciendo Gemini en esta respuesta
         self.automatico = False  # escuchando solo, esperando que conteste
         self.oyo_algo = False    # Gemini transcribió algo de lo que dijo ella
+        self.hablo_ella = False  # en esta escucha ya empezó a hablar
+        self.pidio_ella = False  # esta escucha la abrió un toque (no la automática)
+        self.ultima_respuesta = 0.0  # cuándo llegó algo de Gemini (voz o herramienta)
         self.ultima_actividad = time.monotonic()  # cuándo habló alguien por última vez
         self._candado = asyncio.Lock()            # abrir el micrófono, de a uno
         self.radio = None         # la Radio de main()
@@ -373,7 +387,8 @@ class Charla:
 
     def empezar_envio(self, espera=None):
         self.automatico = espera is not None
-        self.oyo_algo = False
+        self.pidio_ella = espera is None
+        self.oyo_algo = self.hablo_ella = False
         self.envio = tareas.lanzar(self._mandar_mic(espera), "micrófono")
 
     async def _mandar_mic(self, espera):
@@ -390,20 +405,24 @@ class Charla:
         hablo = False
         ultimos = []   # ¿los últimos 5 bloques pasaron el umbral?
         callado = 0    # bloques seguidos en silencio desde que habló
+        ruido = deque(maxlen=VENTANA_RUIDO)  # volumen de los últimos 3 s
         try:
             await mic.stdout.readexactly(DESCARTE)
             for bloque in range(ESCUCHA_MAX * 10):
                 datos = filtro(await mic.stdout.readexactly(BLOQUE))
                 await self.sesion.send_realtime_input(
                     audio=types.Blob(data=datos, mime_type=f"audio/pcm;rate={TASA_MIC}"))
-                fuerte = filtro.rms > UMBRAL_VOZ
+                # El ruido de fondo (la tele) es lo más bajo de los últimos 3 s: aunque
+                # hable seguido, entre palabras siempre hay respiros. Ella "habla" si
+                # pasa el umbral y además se oye por encima de ese fondo.
+                ruido.append(filtro.rms)
+                fuerte = filtro.rms > max(UMBRAL_VOZ, SOBRE_EL_RUIDO * min(ruido))
                 if hablo:
                     callado = 0 if fuerte else callado + 1
                     if fuerte:
                         self.ultima_actividad = time.monotonic()
                     if callado >= FIN_SILENCIO * 10:
-                        await self.sesion.send_realtime_input(audio_stream_end=True)
-                        luz("pensando")
+                        await self.turno_terminado()
                         print("  (terminó de hablar)", flush=True)
                         return
                     continue
@@ -412,7 +431,7 @@ class Charla:
                 # sube y baja), o que Gemini ya haya transcripto algo.
                 ultimos = (ultimos + [fuerte])[-5:]
                 if sum(ultimos) >= 3 or self.oyo_algo:
-                    hablo = True
+                    hablo = self.hablo_ella = True
                     self.automatico = False  # desde acá es una escucha normal
                     self.ultima_actividad = time.monotonic()
                     print("  (te escucho)", flush=True)
@@ -431,6 +450,40 @@ class Charla:
             if mic.returncode is None:
                 mic.kill()
             await mic.wait()
+
+    async def turno_terminado(self):
+        """Le dice a Gemini que ella terminó y vigila que conteste."""
+        await self.sesion.send_realtime_input(audio_stream_end=True)
+        luz("pensando")
+        tareas.lanzar(self._vigilar_respuesta(time.monotonic(), self.pidio_ella), "respuesta")
+
+    async def terminar_turno(self):
+        """Un toque cuando ya habló: "terminé, contestame" (con la tele de fondo
+        la Pi puede no darse cuenta sola de que se calló)."""
+        await self.dejar_de_escuchar()
+        await self.turno_terminado()
+        print("  (terminó de hablar: tocó el botón)", flush=True)
+
+    async def _vigilar_respuesta(self, desde, pidio_ella):
+        """Si Gemini no contesta (habló muy bajito y no la oyó, o solo oyó la tele),
+        la luz no puede quedar girando: si ella lo había pedido con un toque, se le
+        pide a Gemini que le diga que no la escuchó; si no, vuelve a esperar."""
+        def contesto():
+            return self.ultima_respuesta > desde or self.escuchando() or self.parlante
+        await asyncio.sleep(SIN_RESPUESTA)
+        if contesto():
+            return
+        if pidio_ella:
+            print("(Gemini no contestó: que le pida que repita)", flush=True)
+            await self.sesion.send_client_content(turns=types.Content(role="user", parts=[types.Part(
+                text="(No se escuchó bien lo que dijo: habló muy bajito o había ruido. Pedile con "
+                     "cariño, en español, que lo repita un poquito más fuerte o más cerca del aparato.)")]),
+                turn_complete=True)
+            await asyncio.sleep(SIN_RESPUESTA)
+            if contesto():
+                return
+        luz("radio" if self.radio and self.radio.sonando() else "esperando")
+        print("(sin respuesta; tocá el botón para seguir)", flush=True)
 
     async def dejar_de_escuchar(self):
         # El códec de la placa usa un solo reloj: no puede grabar a 16 kHz y
@@ -588,6 +641,8 @@ class Charla:
             async for msg in self.sesion.receive():
                 if msg.usage_metadata:
                     self.contar(msg.usage_metadata)
+                if msg.tool_call or (msg.server_content and msg.server_content.model_turn):
+                    self.ultima_respuesta = time.monotonic()
                 if msg.tool_call:
                     await self.usar_herramientas(msg.tool_call.function_calls)
                 if msg.go_away:
@@ -792,8 +847,13 @@ async def atender(cliente, toques, volumen, radio, recordatorios, mensajes):
                         # Cerramos la charla primero: Gemini no tiene que hablar encima.
                         emergencia = True
                         break
+                    if charla.escuchando() and charla.hablo_ella:
+                        # Ya habló y toca: "terminé". Con la tele de fondo la Pi
+                        # puede no notar que se calló; así contesta enseguida.
+                        await charla.terminar_turno()
+                        continue
                     if charla.escuchando() and not charla.automatico:
-                        # Tocó de nuevo y todavía no hubo respuesta: corta.
+                        # Tocó de nuevo antes de hablar: corta.
                         # (Si estaba esperando solo su respuesta, el toque es
                         # "quiero hablar": sigue abajo y escucha normal.)
                         # Lo que llegue de esa pregunta se descarta.
