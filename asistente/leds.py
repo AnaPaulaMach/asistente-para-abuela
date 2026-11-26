@@ -25,6 +25,11 @@ PUERTO = 47474
 # sin encandilar. Con menos de 8 los colores mezclados (rosa, lila) se pierden,
 # porque a cada canal le quedan muy pocos escalones.
 BRILLO = 8
+# Para que alumbre todavía menos sin perder los colores: prender solo uno de
+# cada CADA LEDs (LUCES_CADA en ajustes.env; 1 = todos, 4 = cuatro de los 16).
+# El volumen y la cuenta regresiva usan todo el anillo: duran segundos y ahí
+# importa ver cuántos están prendidos.
+CADA = 4
 
 ROSA = (255, 40, 120)
 AZUL = (0, 60, 255)
@@ -129,6 +134,10 @@ def main():
         brillo = max(1, min(255, int(_ajuste("LUCES_BRILLO") or BRILLO)))
     except ValueError:
         brillo = BRILLO
+    try:
+        cada = max(1, min(CANTIDAD, int(_ajuste("LUCES_CADA") or CADA)))
+    except ValueError:
+        cada = CADA
     tira = PixelStrip(CANTIDAD, 12, 800000, 10, False, brillo, 0)
     tira.begin()
 
@@ -162,6 +171,8 @@ def main():
                 temporal = None
             actual, dato = (temporal[0], temporal[1]) if temporal else (estado, extra)
             cuadro = dibujar(actual, dato, ahora)
+            if cada > 1 and actual not in ("volumen", "cuenta"):
+                cuadro = [c if i % cada == 0 else (0, 0, 0) for i, c in enumerate(cuadro)]
             if cuadro != anterior:   # en los estados quietos no hay nada que mandar
                 for i, (r, g, b) in enumerate(cuadro):
                     tira.setPixelColor(i, Color(r, g, b))
